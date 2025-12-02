@@ -1,0 +1,7 @@
+
+struct ModManage{
+
+}
+impl ModManage{
+    
+}

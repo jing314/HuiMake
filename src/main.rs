@@ -1,5 +1,9 @@
 mod serde;
-use crate::serde::yaml;
+mod hkmod;
+
+use std::{error::Error, path::PathBuf};
+
+use crate::{hkmod::single_mod::ModFile, serde::yaml};
 
 use clap::{CommandFactory, Parser, Subcommand};
 use serde_yaml::value;
@@ -41,8 +45,10 @@ enum Command {
         name: Option<String>,
     },
 }
-fn main() {
-
+fn main() ->Result<(),Box<dyn Error>>{
+    let base_path = PathBuf::from("./");
+    let config = yaml::Config::from_yaml(&base_path.join("config.yaml"))?;
+    println!("{:#?}",config);
     let cli = Cli::parse();
     match &cli.cmd {
         Some(Command::Build { mode }) =>{
@@ -51,6 +57,8 @@ fn main() {
                     if value.eq_ignore_ascii_case("Release"){
                         println!("Release Mode");
                     }else {
+                        let modinfo = ModFile::get_info(&base_path)?;
+                        println!("{:#?}",modinfo);
                         println!("Debug Mode");
                     }
                 }
@@ -68,7 +76,7 @@ fn main() {
         }
         Some(Command::New { name })=>{
             if let Some(name_vale) = name {
-                println!("new name is {}",name_vale);
+                ModFile::gen(name_vale)?;
             }else {
                 println!("have no name");
             }
@@ -86,5 +94,5 @@ fn main() {
             cmd.print_help().unwrap();
         }
     }
-    println!("name: {:?}", cli.cmd);
+    Ok(())
 }

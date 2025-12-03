@@ -1,0 +1,16 @@
+name: rte
+std: GNU99
+premacro:
+  - linux
+dep:
+  include:          
+    - include
+    - include/sm
+    - include/function
+  hkmod:
+    - ../comm
+    - ../system
+  lib:
+    - pthread
+    - Static
+    - ~

@@ -3,7 +3,7 @@ mod hkmod;
 
 use std::{error::Error, path::PathBuf};
 
-use crate::{hkmod::single_mod::ModFile, serde::yaml};
+use crate::{hkmod::modlue::ModFile, serde::yaml};
 
 use clap::{CommandFactory, Parser, Subcommand};
 use serde_yaml::value;

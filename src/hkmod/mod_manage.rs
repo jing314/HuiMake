@@ -1,7 +1,0 @@
-
-struct ModManage{
-
-}
-impl ModManage{
-    
-}

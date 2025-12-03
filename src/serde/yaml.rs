@@ -1,6 +1,5 @@
-use clap::builder::Str;
 use serde::{Deserialize, Serialize};
-use std::{error::Error, path:: PathBuf};
+use std::{error::Error, path:: {PathBuf,Path}};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Dep {
@@ -8,7 +7,20 @@ pub struct Dep {
     pub hkmod: Vec<String>,
     pub lib: Vec<String>,
 }
-
+impl Dep{
+    pub fn clean_hk_name_str(name: &str) -> Option<&str> {
+    Path::new(name)
+        .file_name()    // 获取路径的最后一部分
+        .and_then(|os_str| os_str.to_str())  // OsStr 转 &str
+    }
+    pub fn clean_hk_name_string(name:&String)->String{
+        Path::new(name)
+        .file_name()
+        .and_then(|os_str| os_str.to_str())
+        .unwrap_or("")
+        .to_string()
+    }
+}
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
     pub name: String,

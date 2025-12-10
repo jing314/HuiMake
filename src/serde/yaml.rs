@@ -32,7 +32,7 @@ pub struct Config {
 impl Config {
     pub fn new() -> Self {
         Config {
-            name: "App".to_string(),
+            name: "app".to_string(),
             std: "C99".to_string(),
             premacro: Vec::new(),
             dep: Dep {

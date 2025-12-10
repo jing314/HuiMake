@@ -10,9 +10,9 @@ use crate::serde::yaml::Config;
 
 #[derive(Debug,Clone)]
 pub  struct ModFile{
-    pub bin: Vec<String>,
-    pub include: Vec<String>,
-    pub src: Vec<String>,
+    pub bin: Vec<PathBuf>,
+    pub include: Vec<PathBuf>,
+    pub src: Vec<PathBuf>,
     pub config: Config,
 }
 impl ModFile{
@@ -40,16 +40,16 @@ impl ModFile{
         }
         Ok(())
     }
-    fn get_dir_info(dir_path:&PathBuf)->Result<Vec<String>,Box<dyn Error>>{
+    fn get_dir_info(dir_path:&PathBuf)->Result<Vec<PathBuf>,Box<dyn Error>>{
         println!("get_dir_info {:?}",dir_path);
         let mut file_name = Vec::new();
         match fs::read_dir(dir_path) {
             Ok(entrys)=>{
                 for entry in entrys{
-                     let entry = entry.unwrap();
-                    if let Some(name) = entry.file_name().to_str() {
-                        file_name.push(name.to_string());                
-                    }
+                     let path = entry.unwrap().path();
+                     let absolute_path = fs::canonicalize(&path)?;
+                     file_name.push(absolute_path);
+             
                 }
             }
             Err(_)=>{

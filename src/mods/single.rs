@@ -10,6 +10,7 @@ use crate::serde::yaml::Config;
 
 #[derive(Debug,Clone)]
 pub  struct ModFile{
+    pub absolute_path:PathBuf,
     pub bin: Vec<PathBuf>,
     pub include: Vec<PathBuf>,
     pub src: Vec<PathBuf>,
@@ -18,6 +19,7 @@ pub  struct ModFile{
 impl ModFile{
     pub fn new()->ModFile{
         ModFile{
+            absolute_path:PathBuf::new(),
             bin: Vec::new(),
             include: Vec::new(),
             src: Vec::new(),
@@ -40,6 +42,18 @@ impl ModFile{
         }
         Ok(())
     }
+
+    fn get_include_of_config(modfile:&mut ModFile)->Result<(),Box<dyn Error>>{
+        let absolute_path = modfile.absolute_path.to_str().unwrap();
+        for include in &modfile.config.dep.include{
+            let path = PathBuf::from(absolute_path).join(include);
+            let absolute_path = fs::canonicalize(&path).unwrap();
+            if !modfile.include.contains(&absolute_path) {
+                modfile.include.push(absolute_path);
+            }
+        }
+        Ok(())
+    }
     fn get_dir_info(dir_path:&PathBuf)->Result<Vec<PathBuf>,Box<dyn Error>>{
         println!("get_dir_info {:?}",dir_path);
         let mut file_name = Vec::new();
@@ -47,7 +61,7 @@ impl ModFile{
             Ok(entrys)=>{
                 for entry in entrys{
                      let path = entry.unwrap().path();
-                     let absolute_path = fs::canonicalize(&path)?;
+                     let absolute_path = fs::canonicalize(&path).unwrap();
                      file_name.push(absolute_path);
              
                 }
@@ -59,12 +73,18 @@ impl ModFile{
         Ok(file_name)
     }
     pub fn get_info(path:&PathBuf)->Result<Self,Box<dyn Error>>{
-        Ok(ModFile { 
+        
+
+        let mut modfile = ModFile { 
+            absolute_path:fs::canonicalize(&path).unwrap(),
             bin: Self::get_dir_info(&path.join("bin")).unwrap(), 
             include: Self::get_dir_info(&path.join("include")).unwrap(), 
             src: Self::get_dir_info(&path.join("src")).unwrap(),
             config: Config::from_yaml(&path.join("config.yaml"))?,
-        })
+        };
+
+        Self::get_include_of_config(&mut modfile)?;
+        Ok(modfile)
     }
 }
 #[derive(Debug)]

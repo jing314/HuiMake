@@ -10,7 +10,7 @@ use petgraph::{
                 visit::IntoNodeIdentifiers
             };
 
-use crate::{r#mod::single::{ModFile, ProjectMap}, serde::yaml::{Config, Dep}};
+use crate::{mods::single::{ModFile, ProjectMap}, serde::yaml::{Config, Dep}};
 #[derive(Debug)]
 pub struct ModsManage{
     pub graph: DiGraph<String,()>,
@@ -69,7 +69,7 @@ impl ModsManage{
 
         Ok(())
     }
-    fn get_next_build_mod(&mut self)->Result<Vec<ModFile>,Box<dyn Error>> {
+    pub fn get_next_build_mod(&mut self)->Result<Vec<ModFile>,Box<dyn Error>> {
         let mut next_build:Vec<ModFile> = Vec::new();
         //获取一个或多个没有入度的图节点
         let build_list = Self::check_mods(self)? ;

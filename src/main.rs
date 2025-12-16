@@ -1,8 +1,10 @@
 mod serde;
-mod r#mod;
+mod mods;
+mod make_tools;
 
 use std::{error::Error, path::PathBuf};
-use crate::{r#mod::{analyzer::ModsManage, single::ModFile}, serde::yaml};
+use crate::{make_tools::usecc, mods::{analyzer::ModsManage, single::ModFile}, serde::yaml};
+// use crate::make_tools;
 use clap::{CommandFactory, Parser, Subcommand};
 use serde_yaml::value;
 #[derive(Parser)]
@@ -44,22 +46,23 @@ enum Command {
     },
 }
 fn main() ->Result<(),Box<dyn Error>>{
-    // let base_path = PathBuf::from("./");
-    // let config = yaml::Config::from_yaml(&base_path.join("config.yaml"))?;
-    // println!("{:#?}",config);
     let cli = Cli::parse();
 
     match &cli.cmd {
         Some(Command::Build { mode }) =>{
-            let project = ModsManage::build_mods_depsgraph()?;
+            let mut project = ModsManage::build_mods_depsgraph()?;
             match mode {
                 Some(value)=>{
                     if value.eq_ignore_ascii_case("Release"){
                         println!("Release Mode");
                     }else {
-                        // let modinfo = ModFile::get_info(&base_path)?;
-                        
-                        println!("{:#?}",project);
+                        let nexts = project.get_next_build_mod()?;
+                        for iter in nexts{
+                            println!("222222222");
+                            usecc::build_single_c_mod(&iter)?;
+                            println!("444444444")
+                        }
+                        // println!("{:#?}",project);
                         println!("Debug Mode");
                     }
                 }

@@ -1,12 +1,10 @@
 mod serde;
 mod mods;
 mod make_tools;
-
+mod utility;
 use std::{error::Error, path::PathBuf};
 use crate::{make_tools::usecc, mods::{analyzer::ModsManage, single::ModFile}, serde::yaml};
-// use crate::make_tools;
 use clap::{CommandFactory, Parser, Subcommand};
-use serde_yaml::value;
 #[derive(Parser)]
 #[command(
     version = "1.0.0", 
@@ -48,6 +46,12 @@ enum Command {
 fn main() ->Result<(),Box<dyn Error>>{
     let cli = Cli::parse();
 
+    println!(r" _   _ _   _ ___   __  __       _        ");
+    println!(r"| | | | | | |_ _| |  \/  | __ _| | _____ ");
+    println!(r"| |_| | | | || |  | |\/| |/ _` | |/ / _ \");
+    println!(r"|  _  | |_| || |  | |  | | (_| |   <  __/");
+    println!(r"|_| |_|\___/|___| |_|  |_|\__,_|_|\_\___|");
+
     match &cli.cmd {
         Some(Command::Build { mode }) =>{
             let mut project = ModsManage::build_mods_depsgraph()?;
@@ -58,11 +62,8 @@ fn main() ->Result<(),Box<dyn Error>>{
                     }else {
                         let nexts = project.get_next_build_mod()?;
                         for iter in nexts{
-                            println!("222222222");
                             usecc::build_single_c_mod(&iter)?;
-                            println!("444444444")
                         }
-                        // println!("{:#?}",project);
                         println!("Debug Mode");
                     }
                 }

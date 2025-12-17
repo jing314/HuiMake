@@ -7,7 +7,8 @@ use clap::builder::Str;
 use clap::parser::Indices;
 
 use crate::serde::yaml::Config;
-
+use crate::loge;
+use crate::logi;
 #[derive(Debug,Clone)]
 pub  struct ModFile{
     pub absolute_path:PathBuf,
@@ -55,7 +56,7 @@ impl ModFile{
         Ok(())
     }
     fn get_dir_info(dir_path:&PathBuf)->Result<Vec<PathBuf>,Box<dyn Error>>{
-        println!("get_dir_info {:?}",dir_path);
+        logi!("get_dir_info {:?}",dir_path);
         let mut file_name = Vec::new();
         match fs::read_dir(dir_path) {
             Ok(entrys)=>{
@@ -67,7 +68,7 @@ impl ModFile{
                 }
             }
             Err(_)=>{
-                println!("未找到对于文件{:?}",dir_path);
+                loge!("未找到对于文件{:?}",dir_path);
             }
         }
         Ok(file_name)
@@ -111,7 +112,7 @@ impl ProjectMap {
                         if path.is_dir(){
                             Some(path)
                         }else {
-                            println!("{:?}无法获得mod文件目录",path);
+                            loge!("{:?}无法获得mod文件目录",path);
                             None
                         }
                     }
@@ -127,7 +128,7 @@ impl ProjectMap {
                 self.indices.insert(name.clone(), modfile);
               }
               Err(_)=>{
-                println!("{:?} 不是合格的工程目录",path);
+                loge!("{:?} 不是合格的工程目录",path);
               }
           } 
       }

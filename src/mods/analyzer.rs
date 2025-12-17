@@ -9,7 +9,7 @@ use petgraph::{
                     NodeIndex}, 
                 visit::IntoNodeIdentifiers
             };
-
+use crate::loge;
 use crate::{mods::single::{ModFile, ProjectMap}, serde::yaml::{Config, Dep}};
 #[derive(Debug)]
 pub struct ModsManage{
@@ -86,7 +86,7 @@ impl ModsManage{
                 }
             }
         }else {
-            println!("循环引用错误");
+            loge!("循环引用错误");
         }
         
         //将没有入度的图节点存入Vec中

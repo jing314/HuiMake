@@ -3,7 +3,8 @@ mod mods;
 mod make_tools;
 mod utility;
 use std::{error::Error, path::PathBuf};
-use crate::{make_tools::cmdfn::{self, CmdNeedData}, mods::{analyzer::ModsManage, single::ModFile}, serde::yaml};
+use crate::{make_tools::cmdfn::{self, CmdNeedData}, mods::{analyzer::ModsManage, single::ModFile}, serde::yaml, utility::logo::print_logo};
+use crate::utility::logo;
 use clap::{CommandFactory, Parser, Subcommand};
 #[derive(Parser)]
 #[command(
@@ -26,10 +27,7 @@ enum Command {
     },
     
     /// clean project mod
-    Clean {
-        #[arg(short, long, help = "clean all build file")]
-        all: bool,
-    },
+    Clean ,
     
     /// build and run
     Run {
@@ -45,18 +43,12 @@ enum Command {
 }
 fn main() ->Result<(),Box<dyn Error>>{
     let cli = Cli::parse();
-
-    println!(r" _   _ _   _ ___   __  __       _        ");
-    println!(r"| | | | | | |_ _| |  \/  | __ _| | _____ ");
-    println!(r"| |_| | | | || |  | |\/| |/ _` | |/ / _ \");
-    println!(r"|  _  | |_| || |  | |  | | (_| |   <  __/");
-    println!(r"|_| |_|\___/|___| |_|  |_|\__,_|_|\_\___|");
+    let mut cmd_data = CmdNeedData::new();
+    cmd_data.check_dir()?;
+    // println!("build mode is {:#?}",cmd_data);
     match &cli.cmd {
         Some(Command::Build { mode }) =>{
             // let mut project = ModsManage::gen_mods_depsgraph(&path)?;
-            let mut cmd_data = CmdNeedData::new();
-            cmd_data.check_dir()?;
-            println!("build mode is {:#?}",cmd_data);
             match mode {
                 Some(value)=>{
                     if value.eq_ignore_ascii_case("Release"){
@@ -71,12 +63,9 @@ fn main() ->Result<(),Box<dyn Error>>{
                 }
             }
         }
-        Some(Command::Clean { all })=>{
-            if *all {
-                println!("clean all");
-            }else{
-                println!("clean currect mod");
-            }
+        Some(Command::Clean)=>{
+            print_logo();
+            cmd_data.clean_cmd()?;
         }
         Some(Command::New { name })=>{
             if let Some(name_vale) = name {
@@ -93,6 +82,7 @@ fn main() ->Result<(),Box<dyn Error>>{
             }
         }
         None =>{
+            print_logo();
              // 显示帮助信息
             let mut cmd = Cli::command();
             cmd.print_help().unwrap();

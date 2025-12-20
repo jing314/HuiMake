@@ -5,7 +5,8 @@ use std::error::Error;
 use std::path::PathBuf;
 use cc::Build;
 use std::fs;
-
+use crate::utility::logo;
+use crate::utility::logo::print_logo;
 use clap::builder::Str;
 use clap::parser::Indices;
 
@@ -44,7 +45,7 @@ impl ModFile{
     pub fn get_info(&mut self,path:&PathBuf)->Result<(),Box<dyn Error>>{
         logi!("ModFile get_info path:{:#?}",path);
         self.absolute_path = fs::canonicalize(&path).unwrap();
-        self.bin = Self::get_dir_info(&path.join("bin")).ok(); 
+        self.bin = Self::get_dir_bin_info(&path.join("bin")).ok(); 
         self.include = Self::get_dir_info(&path.join("include")).ok(); 
         self.src = Self::get_dir_info(&path.join("src")).ok();
         self.config = Config::from_yaml(&path.join("config.yaml")).ok();
@@ -53,7 +54,10 @@ impl ModFile{
         Ok(())
     }
 
-    fn build_lib(&self)->Result<PathBuf,Box<dyn Error>>{
+    fn build_lib(&self)->Result<Option<PathBuf>,Box<dyn Error>>{
+        if self.src.is_none(){
+            return Ok(None);
+        }
         let config = self.get_config()?;
         let local_lib = config.name.as_str();
         let target_triple = "x86_64-unknown-linux-gnu";//TODO:当前先支持固定平台，后续拓展多平台
@@ -84,17 +88,17 @@ impl ModFile{
         };
         let dest_lib_file = lib_dir.join(lib_file.file_name().unwrap());
         fs::rename(&lib_file, &dest_lib_file)?;
-        Ok(dest_lib_file)
+        Ok(Some(dest_lib_file))
     }
 
     fn build_bin(&mut self)->Result<Vec<PathBuf>,Box<dyn Error>>{
         let object_dir = self.get_build_object_path()?;
-        let bin_dir = self.get_build_bin_path()?;
+        // let bin_dir = self.get_build_bin_path()?;
         let mut output_dirs = Vec::new();
         if let Some(bin) = &self.bin{
             for main in bin {
                 let object_file = object_dir.join(main.file_stem().unwrap()).with_extension("o");
-                let output_file = bin_dir.join(main.file_stem().unwrap());//获取后续构建输出文件路径
+                // let output_file = bin_dir.join(main.file_stem().unwrap());//获取后续构建输出文件路径
                 let mut compile_cmd = Command::new("gcc");
                 if let Some(header) = &self.include {
                     for file in header{
@@ -111,7 +115,7 @@ impl ModFile{
                 if !status.success() {
                     return Err(format!("Compilation of {} failed", main.display()).into());
                 }
-                output_dirs.push(output_file);
+                output_dirs.push(object_file);
             }}
         Ok(output_dirs)
     }
@@ -132,24 +136,26 @@ impl ModFile{
             let path = PathBuf::from(name);
             let lib_name = path.file_name().unwrap();
             libsdir_path.push(self.absolute_path.join(&path).join("build").join("lib"));
-            libs_path.push(self.absolute_path.join(&path).join("build").join("lib").join(lib_name));
+            libs_path.push(self.absolute_path.join(&path).join("build").join("lib").join(format!("lib{}.a",lib_name.to_str().unwrap())));
         }
         Ok((libsdir_path,libs_path))
     }
 
     pub fn build(&mut self)->Result<(),Box<dyn Error>>{
+        print_logo();
+        println!("cur build mod is {}",self.absolute_path.display());
         self.gen_build_dir();
         match self.status {
             BuildStatus::BuildAndSuccess=> return Ok(()),
             _=>{
                 let local_lib_dir = self.get_build_lib_path()?;
-                let local_build_bin_dir = self.get_build_bin_path()?;
+                let local_bin_dir = self.get_build_bin_path()?;
 
                 let local_lib = self.build_lib()?;
                 let local_bins = self.build_bin()?;
                 for bin in local_bins{
                     logd!("###@link bin file:{:#?}",bin);
-                    let output_file = local_build_bin_dir.join(bin.file_stem().unwrap());
+                    let output_file = local_bin_dir.join(bin.file_stem().unwrap());
                     let mut link_cmd = Command::new("gcc");
 
                     let (other_lib_dir,other_lib_path) = self.get_all_dep_mods()?;
@@ -158,9 +164,12 @@ impl ModFile{
                         link_cmd.arg("-L").arg(old);
                     }
                     link_cmd.arg(&bin);
-                    link_cmd.arg("-l").arg(&local_lib); // 链接库（-lmylib → libmylib.a） 
+                    
+                    if let Some(lib) = &local_lib {
+                        link_cmd.arg(lib); // 链接库（-lmylib → libmylib.a） 
+                    }
                     for olp in &other_lib_path{
-                        link_cmd.arg("-l").arg(olp);
+                        link_cmd.arg(olp);
                     }
                     link_cmd.arg("-o")
                             .arg(&output_file);
@@ -230,22 +239,52 @@ impl ModFile{
     }
 
     fn get_include_of_config(&mut self)->Result<(),Box<dyn Error>>{
-        let include = match &self.config{
-            Some(cfg) => &cfg.dep.include,
-            None => return Err("配置文件不存在".into()),
-        };
+        let include = self.get_config()?.dep.include.clone();
+        let mods = self.get_config()?.dep.hkmod.clone();
+        // 再可变借用 include
         let include_list = self.include.get_or_insert(Vec::new());
-        for file in include{
-            let path = self.absolute_path.join(file);
-            if let Ok(absolute_path) = fs::canonicalize(&path){
+        
+        for mod_name in mods {
+            let path = self.absolute_path.join(mod_name).join("include");
+            if let Ok(absolute_path) = fs::canonicalize(&path) {
                 if !include_list.contains(&absolute_path) {
                     include_list.push(absolute_path);
                 }
-            }else {
-                loge!("get include absolute_path:{:#?} fail",path);
+            } else {
+                loge!("get mod include absolute_path:{:#?} fail", path);
+            }
+        }
+
+        for file in include {
+            let path = self.absolute_path.join(file);
+            if let Ok(absolute_path) = fs::canonicalize(&path) {
+                if !include_list.contains(&absolute_path) {
+                    include_list.push(absolute_path);
+                }
+            } else {
+                loge!("get include absolute_path:{:#?} fail", path);
             }
         }
         Ok(())
+    }
+    fn get_dir_bin_info(dir_path:&PathBuf)->Result<Vec<PathBuf>,Box<dyn Error>>{
+        logi!("get_dir_info {:?}",dir_path);
+        let mut file_name = Vec::new();
+        match fs::read_dir(dir_path) {
+            Ok(entrys)=>{
+                for entry in entrys{
+                     let path = entry.unwrap().path();
+                     let absolute_path = fs::canonicalize(&path)?;
+                     if absolute_path.extension().is_some_and(|ext| ext == "c"){//后缀判断
+                        file_name.push(absolute_path);
+                     }
+                }
+            }
+            Err(_)=>{
+                loge!("未找到对于文件{:?}",dir_path);
+            }
+        }
+        Ok(file_name)
     }
     fn get_dir_info(dir_path:&PathBuf)->Result<Vec<PathBuf>,Box<dyn Error>>{
         logi!("get_dir_info {:?}",dir_path);
@@ -261,6 +300,9 @@ impl ModFile{
             Err(_)=>{
                 loge!("未找到对于文件{:?}",dir_path);
             }
+        }
+        if file_name.is_empty(){
+            return Err("have no file".into());
         }
         Ok(file_name)
     }

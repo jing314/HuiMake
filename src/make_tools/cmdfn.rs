@@ -76,7 +76,7 @@ impl CmdNeedData {
                     for mod_ in &mut next {
                         mod_.build()?;
                         if mod_.config.as_ref().unwrap().name == self.cur_mod.as_ref().unwrap().config.as_ref().unwrap().name {
-                            break;
+                            return Ok(exe_path);
                         }
                     }
                 }
@@ -105,7 +105,26 @@ impl CmdNeedData {
     pub fn run_dir(&mut self)->Result<(),Box<dyn Error>>{
         Ok(())
     }
-    pub fn clean_cmd()->Result<(),Box<dyn Error>>{
+    pub fn clean_cmd(&mut self)->Result<(),Box<dyn Error>>{
+        match self.status {
+            RunSatus::ModRoot =>{
+                self.cur_mod.as_mut().unwrap().clean_build()?;
+            }
+            RunSatus::ProjectRoot =>{
+                let mods = self.mods.as_mut().unwrap();
+                while  let mut next = mods.get_next()? {
+                    if next.is_empty(){
+                        break;
+                    }
+                    for mod_ in &mut next {
+                        mod_.clean_build()?;
+                    }
+                }
+            }
+            RunSatus::Unknown =>{
+                return Err("Err project".into());
+            }
+        }
         Ok(())
     }
 }

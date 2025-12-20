@@ -3,7 +3,7 @@ mod mods;
 mod make_tools;
 mod utility;
 use std::{error::Error, path::PathBuf};
-use crate::{make_tools::usecc, mods::{analyzer::ModsManage, single::ModFile}, serde::yaml};
+use crate::{make_tools::cmdfn::{self, CmdNeedData}, mods::{analyzer::ModsManage, single::ModFile}, serde::yaml};
 use clap::{CommandFactory, Parser, Subcommand};
 #[derive(Parser)]
 #[command(
@@ -51,19 +51,18 @@ fn main() ->Result<(),Box<dyn Error>>{
     println!(r"| |_| | | | || |  | |\/| |/ _` | |/ / _ \");
     println!(r"|  _  | |_| || |  | |  | | (_| |   <  __/");
     println!(r"|_| |_|\___/|___| |_|  |_|\__,_|_|\_\___|");
-
     match &cli.cmd {
         Some(Command::Build { mode }) =>{
-            let mut project = ModsManage::build_mods_depsgraph()?;
+            // let mut project = ModsManage::gen_mods_depsgraph(&path)?;
+            let mut cmd_data = CmdNeedData::new();
+            cmd_data.check_dir()?;
+            println!("build mode is {:#?}",cmd_data);
             match mode {
                 Some(value)=>{
                     if value.eq_ignore_ascii_case("Release"){
                         println!("Release Mode");
                     }else {
-                        let nexts = project.get_next_build_mod()?;
-                        for iter in nexts{
-                            usecc::build_single_c_mod(&iter)?;
-                        }
+                        cmd_data.build_dir()?;
                         println!("Debug Mode");
                     }
                 }

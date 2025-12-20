@@ -59,4 +59,5 @@ impl Config {
         let context = serde_yaml::to_string(self)?;
         Ok(context)
     }
+
 }

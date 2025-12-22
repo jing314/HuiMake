@@ -64,7 +64,7 @@ impl CmdNeedData {
     构建命令，构建当前模块以及其所依赖的其余模块
     基于其所在目录区分逻辑
     */
-    pub fn build_dir(&mut self)->Result<Vec<PathBuf>,Box<dyn Error>>{
+    pub fn build_dir(&mut self,is_run:bool)->Result<Vec<PathBuf>,Box<dyn Error>>{
         let exe_path = Vec::new();
         match self.status {
             RunSatus::ModRoot =>{
@@ -75,6 +75,9 @@ impl CmdNeedData {
                     }
                     for mod_ in &mut next {
                         mod_.build()?;
+                        if is_run {
+                            mod_.run()?;
+                        }
                         if mod_.config.as_ref().unwrap().name == self.cur_mod.as_ref().unwrap().config.as_ref().unwrap().name {
                             return Ok(exe_path);
                         }
@@ -89,7 +92,11 @@ impl CmdNeedData {
                         break;
                     }
                     for mod_ in &mut next {
+        
                         mod_.build()?;
+                        if is_run {
+                            mod_.run()?;
+                        }
                     }
                 }
             }
@@ -103,6 +110,7 @@ impl CmdNeedData {
     }
     
     pub fn run_dir(&mut self)->Result<(),Box<dyn Error>>{
+        self.build_dir(true)?;
         Ok(())
     }
     pub fn clean_cmd(&mut self)->Result<(),Box<dyn Error>>{

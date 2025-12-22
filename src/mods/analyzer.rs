@@ -38,7 +38,7 @@ impl ModsManage{
         let mut indices = HashMap::new();
         //添加节点
         for modname in &project_map.modname{
-            println!("add mod name is {}",modname);
+            logi!("add mod name is {}",modname);
             let idx = graph.add_node(modname.clone()); 
             indices.insert(modname.clone(), idx);
         }

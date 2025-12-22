@@ -30,10 +30,7 @@ enum Command {
     Clean ,
     
     /// build and run
-    Run {
-        #[arg(help = "program argument")]
-        args: Vec<String>,
-    },
+    Run ,
         
     /// new hk project
     New {
@@ -48,13 +45,12 @@ fn main() ->Result<(),Box<dyn Error>>{
     // println!("build mode is {:#?}",cmd_data);
     match &cli.cmd {
         Some(Command::Build { mode }) =>{
-            // let mut project = ModsManage::gen_mods_depsgraph(&path)?;
             match mode {
                 Some(value)=>{
                     if value.eq_ignore_ascii_case("Release"){
                         println!("Release Mode");
                     }else {
-                        cmd_data.build_dir()?;
+                        cmd_data.build_dir(false)?;
                         println!("Debug Mode");
                     }
                 }
@@ -74,12 +70,8 @@ fn main() ->Result<(),Box<dyn Error>>{
                 println!("have no name");
             }
         }
-        Some(Command::Run { args })=>{
-            if args.is_empty(){
-                println!("build have no arge");
-            }else {
-                println!("build and run with args");
-            }
+        Some(Command::Run)=>{
+            cmd_data.run_dir()?;
         }
         None =>{
             print_logo();

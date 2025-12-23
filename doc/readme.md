@@ -20,7 +20,7 @@ project</br>
 
 cmd:hk new projetc_name
 
-#### 想要注意，下面几条指令在mod根目录运行会在mod层面起作用，在project跟目录运行会在project层面起作用
+#### 需要注意，下面几条指令在mod根目录运行会在mod层面起作用，在project跟目录运行会在project层面起作用
 
 #### build
 构建hk projetc，

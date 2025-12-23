@@ -35,9 +35,9 @@ impl CmdNeedData {
         }
     }
 
-    pub fn check_dir(&mut self)->Result<(),Box<dyn Error>>{
+    pub fn check(&mut self)->Result<(),Box<dyn Error>>{
         let run_dir = PathBuf::from(".");   //获取当前文件夹路径
-        logi!("check_dir run_dir:{:#?}",run_dir);
+        logi!("check run_dir:{:#?}",run_dir);
         match ModsManage::gen_mods_depsgraph(&run_dir) {    //如果是项目根目录
             Ok(projetc) =>{
                 logi!("{:#?} try gen_mods_depsgraph success",run_dir);
@@ -64,7 +64,7 @@ impl CmdNeedData {
     构建命令，构建当前模块以及其所依赖的其余模块
     基于其所在目录区分逻辑
     */
-    pub fn build_dir(&mut self,is_run:bool)->Result<Vec<PathBuf>,Box<dyn Error>>{
+    pub fn build(&mut self,is_run:bool)->Result<Vec<PathBuf>,Box<dyn Error>>{
         let exe_path = Vec::new();
         match self.status {
             RunSatus::ModRoot =>{
@@ -110,7 +110,7 @@ impl CmdNeedData {
     }
     
     pub fn run_dir(&mut self)->Result<(),Box<dyn Error>>{
-        self.build_dir(true)?;
+        self.build(true)?;
         Ok(())
     }
     pub fn clean_cmd(&mut self)->Result<(),Box<dyn Error>>{

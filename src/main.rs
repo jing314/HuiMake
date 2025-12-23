@@ -41,16 +41,16 @@ enum Command {
 fn main() ->Result<(),Box<dyn Error>>{
     let cli = Cli::parse();
     let mut cmd_data = CmdNeedData::new();
-    cmd_data.check_dir()?;
     // println!("build mode is {:#?}",cmd_data);
     match &cli.cmd {
         Some(Command::Build { mode }) =>{
+            cmd_data.check()?;
             match mode {
                 Some(value)=>{
                     if value.eq_ignore_ascii_case("Release"){
                         println!("Release Mode");
                     }else {
-                        cmd_data.build_dir(false)?;
+                        cmd_data.build(false)?;
                         println!("Debug Mode");
                     }
                 }
@@ -60,6 +60,7 @@ fn main() ->Result<(),Box<dyn Error>>{
             }
         }
         Some(Command::Clean)=>{
+            cmd_data.check()?;
             print_logo();
             cmd_data.clean_cmd()?;
         }
@@ -71,11 +72,12 @@ fn main() ->Result<(),Box<dyn Error>>{
             }
         }
         Some(Command::Run)=>{
+            cmd_data.check()?;
             cmd_data.run_dir()?;
         }
         None =>{
+            // 显示帮助信息
             print_logo();
-             // 显示帮助信息
             let mut cmd = Cli::command();
             cmd.print_help().unwrap();
         }

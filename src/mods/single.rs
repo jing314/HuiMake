@@ -64,7 +64,7 @@ impl ModFile{
 
     pub fn build(&mut self)->Result<(),Box<dyn Error>>{
         print_logo();
-        logi!("cur build mod is {}",self.absolute_path.display());
+        println!("building mod is {}",self.absolute_path.display());
         self.gen_build_dir();
         match self.status {
             BuildStatus::BuildSuccess=> return Ok(()),

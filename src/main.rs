@@ -8,7 +8,7 @@ use crate::utility::logo;
 use clap::{CommandFactory, Parser, Subcommand};
 #[derive(Parser)]
 #[command(
-    version = "1.0.0", 
+    version = "1.0.0",                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       
     author = "hui", 
     about = "This is a small tool that serves as an alternative to CMake and Makefile.", 
     long_about = None

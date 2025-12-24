@@ -3,7 +3,7 @@ mod mods;
 mod make_tools;
 mod utility;
 use std::{error::Error, path::PathBuf};
-use crate::{make_tools::cmdfn::{self, CmdNeedData}, mods::{analyzer::ModsManage, single::ModFile}, serde::yaml, utility::logo::print_logo};
+use crate::{make_tools::cmdfn::CmdNeedData, mods::{analyzer::ModsManage, single::ModFile}, serde::yaml, utility::logo::print_logo};
 use crate::utility::logo;
 use clap::{CommandFactory, Parser, Subcommand};
 #[derive(Parser)]
@@ -34,7 +34,7 @@ enum Command {
         
     /// new hk project
     New {
-        #[arg(help = "project name")]
+        #[arg(help = "project name",default_value = "new_hk_project")]
         name: Option<String>,
     },
 }
@@ -43,11 +43,18 @@ fn main() ->Result<(),Box<dyn Error>>{
     let mut cmd_data = CmdNeedData::new();
     // println!("build mode is {:#?}",cmd_data);
     match &cli.cmd {
+        Some(Command::New { name })=>{
+            if let Some(name_vale) = name {
+                cmd_data.gen(name_vale)?;
+            }else {
+                println!("have no name");
+            }
+        }
         Some(Command::Build { mode }) =>{
             cmd_data.check()?;
             match mode {
                 Some(value)=>{
-                    if value.eq_ignore_ascii_case("Release"){
+                    if value.eq_ignore_ascii_case("release"){
                         println!("Release Mode");
                     }else {
                         cmd_data.build(false)?;
@@ -62,18 +69,12 @@ fn main() ->Result<(),Box<dyn Error>>{
         Some(Command::Clean)=>{
             cmd_data.check()?;
             print_logo();
-            cmd_data.clean_cmd()?;
+            cmd_data.clean()?;
         }
-        Some(Command::New { name })=>{
-            if let Some(name_vale) = name {
-                ModFile::gen(name_vale)?;
-            }else {
-                println!("have no name");
-            }
-        }
+
         Some(Command::Run)=>{
             cmd_data.check()?;
-            cmd_data.run_dir()?;
+            cmd_data.run()?;
         }
         None =>{
             // 显示帮助信息

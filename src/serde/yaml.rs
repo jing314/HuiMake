@@ -33,7 +33,7 @@ impl Config {
     pub fn new() -> Self {
         Config {
             name: "app".to_string(),
-            std: "C99".to_string(),
+            std: "c99".to_string(),
             premacro: Vec::new(),
             dep: Dep {
                 include: Vec::new(),
@@ -50,11 +50,6 @@ impl Config {
         Ok(config)
     }
     
-    pub fn load(&mut self, path: &PathBuf) -> Result<(), Box<dyn Error>> {
-        *self = Self::from_yaml(path)?;
-        Ok(())
-    }
-
     pub fn to_yaml(&self) -> Result<String,Box<dyn Error>>{
         let context = serde_yaml::to_string(self)?;
         Ok(context)

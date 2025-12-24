@@ -1,374 +1,421 @@
 use std::collections::HashMap;
-use std::fmt::format;
 use std::process::Command;
 use std::error::Error;
-use std::path::PathBuf;
+use std::path::{PathBuf,Path};
 use cc::Build;
 use std::fs;
-use crate::utility::logo;
 use crate::utility::logo::print_logo;
-use clap::builder::Str;
-use clap::parser::Indices;
 
 use crate::serde::yaml::Config;
-use crate::loge;
-use crate::logi;
-use crate::logd;
-use crate::utility::log;
-#[derive(Debug,Clone,PartialEq)]
-pub enum BuildStatus {
-    BuildSuccess,
-    BuildFail,
-    NoBuild,
-}
+use crate::{logd,loge,logi};
 
-#[derive(Debug,Clone)]
-pub  struct ModFile{
-    pub status:BuildStatus,
-    pub absolute_path:PathBuf,
-    pub bin: Option<Vec<PathBuf>>,
-    pub include: Option<Vec<PathBuf>>,
-    pub src: Option<Vec<PathBuf>>,
+
+/// 表示一个模块（mod）的元数据和构建上下文
+#[derive(Debug, Clone)]
+pub struct ModFile {
+    /// 模块的绝对路径（根目录）
+    pub absolute_path: PathBuf,
+    /// 可执行源文件列表（位于 bin/ 目录下，如 main.c）
+    pub bin_sources: Option<Vec<PathBuf>>,
+    /// 头文件搜索路径（include/ 目录 + 配置中指定的路径）
+    pub include_paths: Option<Vec<PathBuf>>,
+    /// 库源文件列表（位于 src/ 目录下）
+    pub lib_sources: Option<Vec<PathBuf>>,
+    /// 从 config.yaml 加载的配置
     pub config: Option<Config>,
 }
+
 impl ModFile{
-    pub fn new()->Self{
-        ModFile{
-            status:BuildStatus::NoBuild,
-            absolute_path:PathBuf::new(),
-            bin: None,
-            include: None,
-            src: None,
+    /// 创建一个空的 `ModFile` 实例
+    pub fn new() -> Self {
+        Self {
+            absolute_path: PathBuf::new(),
+            bin_sources: None,
+            include_paths: None,
+            lib_sources: None,
             config: None,
         }
     }
 
-    pub fn get_info(&mut self,path:&PathBuf)->Result<(),Box<dyn Error>>{
-        logi!("ModFile get_info path:{:#?}",path);
-        self.absolute_path = fs::canonicalize(&path).unwrap();
-        self.bin = Self::get_dir_bin_info(&path.join("bin")).ok(); 
-        self.include = Self::get_dir_info(&path.join("include")).ok(); 
-        self.src = Self::get_dir_info(&path.join("src")).ok();
-        self.config = Config::from_yaml(&path.join("config.yaml")).ok();
+    /// 从给定路径加载模块信息（目录结构 + 配置）
+    pub fn get_info(&mut self, path: &Path) -> Result<(), Box<dyn Error>> {
+        logi!("Loading module info from: {:?}", path);
+        self.absolute_path = fs::canonicalize(path)?;
         
-        self.get_include_of_config()?;
+        // 加载各子目录中的文件
+        self.bin_sources = Self::load_c_files_from_dir(&path.join("bin")).ok();
+        self.lib_sources = Self::load_all_files_from_dir(&path.join("src")).ok();
+        self.include_paths = Self::load_all_files_from_dir(&path.join("include")).ok();
+
+        // 加载 YAML 配置
+        self.config = Config::from_yaml(&path.join("config.yaml")).ok();
+
+        // 从配置中补充 include 路径（依赖模块 + 显式 include）
+        self.merge_includes_from_config()?;
         Ok(())
     }
 
-    pub fn get_config(&self)->Result<&Config,Box<dyn Error>>{
-        Ok(match &self.config {
-           Some(cfg) => cfg,
-           None=>return Err("无效配置文件".into()),
-        })
+    /// 获取配置引用，若不存在则返回错误
+    pub fn get_config(&self) -> Result<&Config, Box<dyn Error>> {
+        self.config.as_ref()
+            .ok_or_else(|| "Module configuration is missing".into())
     }
 
-    pub fn build(&mut self)->Result<(),Box<dyn Error>>{
+    /// 执行完整构建流程：清理 → 编译库 → 编译二进制 → 链接
+    pub fn build(&mut self) -> Result<(), Box<dyn Error>> {
         print_logo();
-        println!("building mod is {}",self.absolute_path.display());
-        self.gen_build_dir();
-        match self.status {
-            BuildStatus::BuildSuccess=> return Ok(()),
-            _=>{
-                let local_lib = self.build_lib()?;//构建当前模块静态库
-                let local_bins = self.build_bin()?;//构建当前模块mian.o文件
-                self.build_link(&local_bins,local_lib)?;//链接生成可执行文件
-                self.status = BuildStatus::BuildSuccess;
-            }
-        }
+        println!("Building module: {}", self.absolute_path.display());
+        
+        self.ensure_build_dirs()?;
+        let local_lib = self.build_lib()?;      // 构建静态库（.a）
+        let object_files = self.build_bin()?;   // 编译 bin/ 下的 .c 为 .o
+        self.link_executables(&object_files, local_lib)?; // 链接生成可执行文件
+        
         Ok(())
     }
 
-    pub fn run(&self)->Result<(),Box<dyn Error>>{
-        let exe_paths = self.get_exe_path()?;
-        for exe in exe_paths{
-            let mut perms = fs::metadata(&exe)?.permissions();
-            #[cfg(unix)] {
+    /// 运行所有已构建的可执行文件
+    pub fn run(&self) -> Result<(), Box<dyn Error>> {
+        let exe_paths = self.get_executable_paths()?;
+        for exe in exe_paths {
+            #[cfg(unix)]
+            {
                 use std::os::unix::fs::PermissionsExt;
-                perms.set_mode(0o755); // 设置为可执行权限
+                let mut perms = fs::metadata(&exe)?.permissions();
+                perms.set_mode(0o755);
                 fs::set_permissions(&exe, perms)?;
             }
-            let mut run_cmd = Command::new(&exe);
-            logi!("run exe file:{:#?}",exe);
-            let status = run_cmd.status()?;
+
+            logi!("Running executable: {:?}", exe);
+            let status = Command::new(&exe).status()?;
             if !status.success() {
-                return Err(format!("run of {} failed", exe.display()).into());
+                return Err(format!("Execution failed: {}", exe.display()).into());
             }
         }
         Ok(())
     }
 
-    pub fn is_mod_dir(path:&PathBuf)->bool{
-        let mut mod_ = Self::new();
-        mod_.get_info(path).is_ok()
-    } 
+    /// 判断路径是否为有效模块目录（能成功加载 info）
+    pub fn is_mod_dir(path: &Path) -> bool {
+        let mut mod_file = Self::new();
+        mod_file.get_info(path).is_ok()
+    }
 
-    pub fn clean_build(&mut self)->Result<(),Box<dyn Error>>{
+    /// 清理 build/ 目录
+    pub fn clean_build(&mut self) -> Result<(), Box<dyn Error>> {
         let build_dir = self.absolute_path.join("build");
-        if build_dir.exists(){
+        if build_dir.exists() {
             fs::remove_dir_all(build_dir)?;
         }
         Ok(())
     }
 
+    /// 生成新模块骨架目录（bin/, include/, src/, config.yaml）
     pub fn gen(mod_name: &str) -> Result<(), Box<dyn Error>> {
-        // 使用 &str 而不是 &String 更通用
         let base = PathBuf::from(mod_name);
-        
-        // 一次性创建所有目录
-        let dirs = ["bin", "include", "src"];
-        for dir in &dirs {
+        for dir in ["bin", "include", "src"] {
             fs::create_dir_all(base.join(dir))?;
         }
-        let config_dir = base.join("config.yaml");
-        let def_config = Config::new();
-        if let Ok(content) = def_config.to_yaml(){
-            fs::write(config_dir, content)?;
+
+        let config_path = base.join("config.yaml");
+        let default_config = Config::new();
+        if let Ok(yaml) = default_config.to_yaml() {
+            fs::write(config_path, yaml)?;
         }
         Ok(())
     }
 
-    fn get_exe_path(&self)->Result<Vec<PathBuf>,Box<dyn Error>>{
-        if self.status != BuildStatus::BuildSuccess{
-            return Err("mod have no build".into());
-        }
+    // ———————————————————————— 私有辅助方法 ————————————————————————
+    /// 获取所有可执行文件路径（build/bin/ 下）
+    fn get_executable_paths(&self) -> Result<Vec<PathBuf>, Box<dyn Error>> {
         let bin_dir = self.get_build_bin_path()?;
-        let mut exe_path = Vec::new();
-        if let Some(bin) = &self.bin{
-            for main in bin {
-                let output_file = bin_dir.join(main.file_stem().unwrap());
-                if !output_file.exists(){
-                    return Err("exe file not exists".into());
+        let mut paths = Vec::new();
+
+        if let Some(bin_list) = &self.bin_sources {
+            for source in bin_list {
+                let exe = bin_dir.join(
+                    source.file_stem()
+                        .ok_or_else(|| format!("Invalid binary source name: {}", source.display()))?
+                );
+                if !exe.exists() {
+                    return Err(format!("Executable not found: {}", exe.display()).into());
                 }
-                exe_path.push(output_file);
+                paths.push(exe);
             }
         }
-        Ok(exe_path)
+        Ok(paths)
     }
 
-    fn build_lib(&self)->Result<Option<PathBuf>,Box<dyn Error>>{
-        if self.src.is_none(){
+    /// 构建静态库（使用 cc crate）
+    fn build_lib(&self) -> Result<Option<PathBuf>, Box<dyn Error>> {
+        if self.lib_sources.is_none() {
             return Ok(None);
         }
+
         let config = self.get_config()?;
-        let local_lib = config.name.as_str();
-        let target_triple = "x86_64-unknown-linux-gnu";//TODO:当前先支持固定平台，后续拓展多平台
+        let lib_name = config.name.as_str();
+        let target_triple = "x86_64-unknown-linux-gnu"; // TODO: 支持多平台
+
         let object_dir = self.get_build_object_path()?;
         let lib_dir = self.get_build_lib_path()?;
 
-        /*
-            1. 编译源文件为静态库（排除bin目录下的源文件）
-        */
-        let mut lib_build = Build::new();// 生成静态库
-        if let Some(src) = &self.src {
-            lib_build.files(src);
+        // 使用 cc 构建静态库
+        let mut builder = Build::new();
+        if let Some(sources) = &self.lib_sources {
+            builder.files(sources);
         }
-        if let Some(header) = &self.include {
-            lib_build.includes(header);
+        if let Some(includes) = &self.include_paths {
+            builder.includes(includes);
         }
-        lib_build.target(target_triple)
+
+        builder
+            .target(target_triple)
             .host(target_triple)
-            .cpp(false) // TODO：基于config.yaml获取类型
+            .cpp(false) // TODO: 从 config 推断
             .out_dir(&object_dir)
             .opt_level(2)
-            .compile(local_lib);// 编译静态库
+            .compile(lib_name);
 
+        // 移动库文件到 build/lib/
         let lib_file = if cfg!(windows) {
-            object_dir.join(format!("lib{}.lib", local_lib))
+            object_dir.join(format!("{}.lib", lib_name))
         } else {
-            object_dir.join(format!("lib{}.a", local_lib))
+            object_dir.join(format!("lib{}.a", lib_name))
         };
-        let dest_lib_file = lib_dir.join(lib_file.file_name().unwrap());
-        fs::rename(&lib_file, &dest_lib_file)?;
-        Ok(Some(dest_lib_file))
+
+        let dest = lib_dir.join(lib_file.file_name().unwrap());
+        fs::rename(&lib_file, &dest)?;
+        Ok(Some(dest))
     }
 
-    fn build_bin(&mut self)->Result<Vec<PathBuf>,Box<dyn Error>>{
+    /// 编译 bin/ 下的 .c 文件为 .o 对象文件
+    fn build_bin(&mut self) -> Result<Vec<PathBuf>, Box<dyn Error>> {
         let object_dir = self.get_build_object_path()?;
-        // let bin_dir = self.get_build_bin_path()?;
-        let mut output_dirs = Vec::new();
-        if let Some(bin) = &self.bin{
-            for main in bin {
-                let object_file = object_dir.join(main.file_stem().unwrap()).with_extension("o");
-                // let output_file = bin_dir.join(main.file_stem().unwrap());//获取后续构建输出文件路径
-                let mut compile_cmd = Command::new("gcc");
-                if let Some(header) = &self.include {
-                    for file in header{
-                        compile_cmd.arg("-I").arg(file);
-                    }
+
+        // 若无二进制源文件，直接返回空
+        let sources = match &self.bin_sources {
+            Some(list) if !list.is_empty() => list,
+            _ => return Ok(Vec::new()),
+        };
+
+        let mut object_files = Vec::new();
+        for source in sources {
+            let stem = source.file_stem()
+                .ok_or_else(|| format!("Invalid source filename: {}", source.display()))?;
+            let obj = object_dir.join(stem).with_extension("o");
+
+            let mut cmd = Command::new("gcc");
+            if let Some(includes) = &self.include_paths {
+                for inc in includes {
+                    cmd.arg("-I").arg(inc);
                 }
-                compile_cmd
-                    .arg("-c")  // 仅编译，不链接
-                    .arg(main)
-                    .arg("-o")
-                    .arg(&object_file);
-                logi!("Compiling: {:?}", compile_cmd);
-                let status = compile_cmd.status()?;
-                if !status.success() {
-                    return Err(format!("Compilation of {} failed", main.display()).into());
-                }
-                output_dirs.push(object_file);
-            }}
-        Ok(output_dirs)
-    }
+            }
+            cmd.arg("-c").arg(source).arg("-o").arg(&obj);
 
-    fn get_all_dep_mods(&self)->Result<(Vec<PathBuf>,Vec<PathBuf>),Box<dyn Error>>{
-        let cfg = self.get_config()?;
-        let mods_path = &cfg.dep.hkmod;
-        let mut libsdir_path = Vec::new();
-        let mut libs_path = Vec::new();
-        for name in mods_path {
-            let path = PathBuf::from(name);
-            let lib_name = path.file_name().unwrap();
-            libsdir_path.push(self.absolute_path.join(&path).join("build").join("lib"));
-            libs_path.push(self.absolute_path.join(&path).join("build").join("lib").join(format!("lib{}.a",lib_name.to_str().unwrap())));
-        }
-        Ok((libsdir_path,libs_path))
-    }
-
-    fn build_link(&mut self,local_bins:&Vec<PathBuf>,local_lib:Option<PathBuf>)->Result<(),Box<dyn Error>>{
-        let local_bin_dir = self.get_build_bin_path()?;
-        let local_lib_dir = self.get_build_lib_path()?;
-        for bin in local_bins{
-            logd!("###@link bin file:{:#?}",bin);
-            let output_file = local_bin_dir.join(bin.file_stem().unwrap());
-            let mut link_cmd = Command::new("gcc");
-
-            let (other_lib_dir,other_lib_path) = self.get_all_dep_mods()?;
-            link_cmd.arg("-L").arg(&local_lib_dir);//链接本地库目录
-            for old in &other_lib_dir  {
-                link_cmd.arg("-L").arg(old);
-            }
-            link_cmd.arg(&bin);
-            
-            if let Some(lib) = &local_lib {
-                link_cmd.arg(lib); // 链接库（-lmylib → libmylib.a） 
-            }
-            for olp in &other_lib_path{
-                link_cmd.arg(olp);
-            }
-            link_cmd.arg("-o")
-                    .arg(&output_file);
-            for l in self.get_system_lib(){
-                link_cmd.arg(l);
-            }
-            logi!("Linking: {:?}", link_cmd);
-            let status = link_cmd.status()?;
+            logi!("Compiling: {:?}", cmd);
+            let status = cmd.status()?;
             if !status.success() {
-                return Err(format!("Linking of {} failed", output_file.display()).into());
+                return Err(format!("Compilation failed: {}", source.display()).into());
+            }
+            object_files.push(obj);
+        }
+        Ok(object_files)
+    }
+
+    /// 获取依赖模块的库路径和链接目录
+    fn get_dependency_libs(&self) -> Result<(Vec<PathBuf>, Vec<PathBuf>), Box<dyn Error>> {
+        let config = self.get_config()?;
+        let mut lib_dirs = Vec::new();
+        let mut lib_files = Vec::new();
+
+        for dep_name in &config.dep.hkmod {
+            let dep_root = self.absolute_path.join(dep_name);
+            let lib_dir = dep_root.join("build").join("lib");
+            let lib_file = lib_dir.join(format!("lib{}.a", dep_name));
+
+            lib_dirs.push(lib_dir);
+            lib_files.push(lib_file);
+        }
+        Ok((lib_dirs, lib_files))
+    }
+
+        /// 链接所有可执行文件
+    fn link_executables(
+        &mut self,
+        object_files: &[PathBuf],
+        local_lib: Option<PathBuf>,
+    ) -> Result<(), Box<dyn Error>> {
+        let bin_out_dir = self.get_build_bin_path()?;
+        let local_lib_dir = self.get_build_lib_path()?;
+
+        let (dep_lib_dirs, dep_lib_files) = self.get_dependency_libs()?;
+
+        for obj in object_files {
+            let exe = bin_out_dir.join(
+                obj.file_stem()
+                    .ok_or_else(|| format!("Invalid object file: {}", obj.display()))?
+            );
+
+            let mut cmd = Command::new("gcc");
+            cmd.arg("-L").arg(&local_lib_dir);
+            for dir in &dep_lib_dirs {
+                cmd.arg("-L").arg(dir);
+            }
+            cmd.arg(obj);
+
+            if let Some(lib) = &local_lib {
+                cmd.arg(lib);
+            }
+            for lib in &dep_lib_files {
+                cmd.arg(lib);
+            }
+
+            cmd.arg("-o").arg(&exe);
+            for sys_lib in self.get_system_libs() {
+                cmd.arg(sys_lib);
+            }
+
+            logi!("Linking: {:?}", cmd);
+            let status = cmd.status()?;
+            if !status.success() {
+                return Err(format!("Linking failed: {}", exe.display()).into());
             }
         }
         Ok(())
     }
 
-    fn get_system_lib(&self) -> Vec<String> {
+
+    /// 从配置中提取系统库（如 -lpthread）
+    fn get_system_libs(&self) -> Vec<String> {
         self.config
-        .iter()
-        .flat_map(|cfg| &cfg.dep.lib)
-        .map(|lib_name| format!("-l{}",lib_name))
-        .collect()
+            .iter()
+            .flat_map(|cfg| &cfg.dep.lib)
+            .map(|name| format!("-l{}", name))
+            .collect()
     }
 
-    fn gen_build_dir(&self){
-        let out_dir = self.absolute_path.join("build");
-        let bin_dir = out_dir.join("bin");
-        let object_dir = out_dir.join("object");
-        let lib_dir = out_dir.join("lib");
-        fs::create_dir_all(&bin_dir).ok();
-        fs::create_dir_all(&object_dir).ok();
-        fs::create_dir_all(&lib_dir).ok();
-        logd!("{:#?} {:#?} {:#?}",bin_dir,object_dir,lib_dir);     
+
+    /// 确保 build/ 子目录存在
+    fn ensure_build_dirs(&self) -> Result<(), Box<dyn Error>> {
+        let base = self.absolute_path.join("build");
+        for subdir in ["bin", "object", "lib"] {
+            fs::create_dir_all(base.join(subdir))?;
+        }
+        logd!("Build directories created under: {:?}", base);
+        Ok(())
     }
 
+    /// 获取构建输出路径（带存在性检查）
     fn get_build_bin_path(&self)->Result<PathBuf,Box<dyn Error>>{
-        Ok(self.absolute_path.join("build").join("bin"))
+        let path = self.absolute_path.join("build").join("bin");
+        if !path.exists(){
+            return Err("build bin path not exists".into());
+        }
+        Ok(path)
     }
 
     fn get_build_object_path(&self)->Result<PathBuf,Box<dyn Error>>{
-        Ok(self.absolute_path.join("build").join("object"))
+        let path = self.absolute_path.join("build").join("object");;
+        if !path.exists(){
+            return Err("build object path not exists".into());
+        }
+        Ok(path)
     }
 
     fn get_build_lib_path(&self)->Result<PathBuf,Box<dyn Error>>{
-        Ok(self.absolute_path.join("build").join("lib"))
+        let path = self.absolute_path.join("build").join("lib");
+        if !path.exists(){
+            return Err("build lib path not exists".into());
+        }
+        Ok(path)
     }
     
-    fn get_include_of_config(&mut self)->Result<(),Box<dyn Error>>{
-        let include = self.get_config()?.dep.include.clone();
-        let mods = self.get_config()?.dep.hkmod.clone();
-        // 再可变借用 include
-        let include_list = self.include.get_or_insert(Vec::new());
-        
-        for mod_name in mods {
-            let path = self.absolute_path.join(mod_name).join("include");
-            if let Ok(absolute_path) = fs::canonicalize(&path) {
-                if !include_list.contains(&absolute_path) {
-                    include_list.push(absolute_path);
+    /// 从 config.yaml 合并 include 路径：
+    /// - 依赖模块的 include/
+    /// - 配置中显式列出的 include 路径
+    fn merge_includes_from_config(&mut self) -> Result<(), Box<dyn Error>> {
+        let config = match &self.config {
+            Some(cfg) => cfg,
+            None => return Err(format!("No config found in {:?}", self.absolute_path).into()), // 无配置则跳过
+        };
+
+        let includes = self.include_paths.get_or_insert_with(Vec::new);
+
+        // 添加依赖模块的 include/
+        for dep in &config.dep.hkmod {
+            let path = self.absolute_path.join(dep).join("include");
+            if let Ok(abs) = fs::canonicalize(&path) {
+                if !includes.contains(&abs) {
+                    includes.push(abs);
                 }
             } else {
-                loge!("get mod include absolute_path:{:#?} fail", path);
+                loge!("Failed to canonicalize dependency include: {:?}", path);
             }
         }
 
-        for file in include {
-            let path = self.absolute_path.join(file);
-            if let Ok(absolute_path) = fs::canonicalize(&path) {
-                if !include_list.contains(&absolute_path) {
-                    include_list.push(absolute_path);
+        // 添加配置中显式 include 路径
+        for rel_path in &config.dep.include {
+            let path = self.absolute_path.join(rel_path);
+            if let Ok(abs) = fs::canonicalize(&path) {
+                if !includes.contains(&abs) {
+                    includes.push(abs);
                 }
             } else {
-                loge!("get include absolute_path:{:#?} fail", path);
+                loge!("Failed to canonicalize include path: {:?}", path);
             }
         }
+
         Ok(())
     }
 
-    fn get_dir_bin_info(dir_path:&PathBuf)->Result<Vec<PathBuf>,Box<dyn Error>>{
-        logi!("get_dir_info {:?}",dir_path);
-        let mut file_name = Vec::new();
-        match fs::read_dir(dir_path) {
-            Ok(entrys)=>{
-                for entry in entrys{
-                     let path = entry.unwrap().path();
-                     let absolute_path = fs::canonicalize(&path)?;
-                     if absolute_path.extension().is_some_and(|ext| ext == "c"){//后缀判断
-                        file_name.push(absolute_path);
-                     }
+    /// 加载目录下所有 .c 文件（用于 bin/）
+    fn load_c_files_from_dir(dir: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
+        logi!("Scanning C files in: {:?}", dir);
+        let mut files = Vec::new();
+
+        if !dir.exists() {
+            return Ok(files); // 允许目录不存在
+        }
+
+        for entry in fs::read_dir(dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_file() {
+                if path.extension().map_or(false, |ext| ext == "c") {
+                    files.push(fs::canonicalize(&path)?);
                 }
             }
-            Err(_)=>{
-                loge!("未找到对于文件{:?}",dir_path);
-            }
         }
-        Ok(file_name)
+        Ok(files)
     }
 
-    fn get_dir_info(dir_path:&PathBuf)->Result<Vec<PathBuf>,Box<dyn Error>>{
-        logi!("get_dir_info {:?}",dir_path);
-        let mut file_name = Vec::new();
-        match fs::read_dir(dir_path) {
-            Ok(entrys)=>{
-                for entry in entrys{
-                     let path = entry.unwrap().path();
-                     let absolute_path = fs::canonicalize(&path)?;
-                     file_name.push(absolute_path);
-                }
-            }
-            Err(_)=>{
-                loge!("未找到对于文件{:?}",dir_path);
-            }
-        }
-        if file_name.is_empty(){
-            return Err("have no file".into());
-        }
-        Ok(file_name)
-    }
+/// 加载目录下所有文件（用于 src/ 和 include/）
+    fn load_all_files_from_dir(dir: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
+        logi!("Scanning all files in: {:?}", dir);
+        let mut files = Vec::new();
 
+        if !dir.exists() {
+            return Ok(files); // 目录可选
+        }
+
+        for entry in fs::read_dir(dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_file() {
+                files.push(fs::canonicalize(&path)?);
+            }
+        }
+        Ok(files)
+    }
 }
+
 #[derive(Debug)]
 pub struct  ProjectMap{
     pub modname:Vec<String>,
     pub indices :HashMap<String,ModFile>,
     pub index :HashMap<String,PathBuf>,
 }
+
 impl ProjectMap {
     pub fn new()->Self{
         ProjectMap { 
@@ -379,13 +426,14 @@ impl ProjectMap {
     }
     pub fn get_info(&mut self,path:&PathBuf)->Result<(),Box<dyn Error>>{
         let current_dir = path.clone();
+
+        //读取当前目录下的所有模块目录
         let mods: Vec<PathBuf> = fs::read_dir(&current_dir)?
                 .filter_map(|entry| {
                     match entry {
                         Ok(e)=>{
                             let path = e.path();
                             if ModFile::is_mod_dir(&path){
-                                logi!("{:?}获得mod文件目录",path);
                                 Some(path)
                             }else {
                                 None
@@ -394,14 +442,15 @@ impl ProjectMap {
                         Err(_)=> None,
                     }
                 }).collect();
+
         if mods.is_empty() {
             return Err("have no mod".into());
         }
+
         for path in &mods {
                 let mut modfile = ModFile::new();
                 modfile.get_info(path)?;
-                let cfg = modfile.get_config()?;
-                let name = cfg.name.clone();
+                let name = modfile.get_config()?.name.clone();
                 self.modname.push(name.clone());
                 self.index.insert(name.clone(), path.clone());
                 self.indices.insert(name.clone(), modfile);

@@ -109,11 +109,11 @@ impl CmdNeedData {
 
     }
     
-    pub fn run_dir(&mut self)->Result<(),Box<dyn Error>>{
+    pub fn run(&mut self)->Result<(),Box<dyn Error>>{
         self.build(true)?;
         Ok(())
     }
-    pub fn clean_cmd(&mut self)->Result<(),Box<dyn Error>>{
+    pub fn clean(&mut self)->Result<(),Box<dyn Error>>{
         match self.status {
             RunSatus::ModRoot =>{
                 self.cur_mod.as_mut().unwrap().clean_build()?;
@@ -133,6 +133,10 @@ impl CmdNeedData {
                 return Err("Err project".into());
             }
         }
+        Ok(())
+    }
+    pub fn gen(&self,name:&str)->Result<(),Box<dyn Error>>{
+        ModFile::gen(name)?;
         Ok(())
     }
 }

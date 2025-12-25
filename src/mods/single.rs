@@ -15,6 +15,8 @@ use crate::{logd,loge,logi};
 pub struct ModFile {
     /// 模块的绝对路径（根目录）
     pub absolute_path: PathBuf,
+    /// 模块名
+    pub name: String,
     /// 可执行源文件列表（位于 bin/ 目录下，如 main.c）
     pub bin_sources: Option<Vec<PathBuf>>,
     /// 头文件搜索路径（include/ 目录 + 配置中指定的路径）
@@ -30,6 +32,7 @@ impl ModFile{
     pub fn new() -> Self {
         Self {
             absolute_path: PathBuf::new(),
+            name: String::new(),
             bin_sources: None,
             include_paths: None,
             lib_sources: None,
@@ -49,6 +52,12 @@ impl ModFile{
 
         // 加载 YAML 配置
         self.config = Config::from_yaml(&path.join("config.yaml")).ok();
+
+        if let Some(cfg) = &self.config {
+            self.name = cfg.name.clone();
+        } else {
+            return Err("Failed to load config.yaml".into());
+        }
 
         // 从配置中补充 include 路径（依赖模块 + 显式 include）
         self.merge_includes_from_config()?;
@@ -152,8 +161,8 @@ impl ModFile{
             return Ok(None);
         }
 
-        let config = self.get_config()?;
-        let lib_name = config.name.as_str();
+        // let config = self.get_config()?;
+        let lib_name = self.name.as_str();
         let target_triple = "x86_64-unknown-linux-gnu"; // TODO: 支持多平台
 
         let object_dir = self.get_build_object_path()?;
@@ -315,7 +324,7 @@ impl ModFile{
     }
 
     fn get_build_object_path(&self)->Result<PathBuf,Box<dyn Error>>{
-        let path = self.absolute_path.join("build").join("object");;
+        let path = self.absolute_path.join("build").join("object");
         if !path.exists(){
             return Err("build object path not exists".into());
         }
@@ -450,10 +459,9 @@ impl ProjectMap {
         for path in &mods {
                 let mut modfile = ModFile::new();
                 modfile.get_info(path)?;
-                let name = modfile.get_config()?.name.clone();
-                self.modname.push(name.clone());
-                self.index.insert(name.clone(), path.clone());
-                self.indices.insert(name.clone(), modfile);
+                self.modname.push(modfile.name.clone());
+                self.index.insert(modfile.name.clone(), path.clone());
+                self.indices.insert(modfile.name.clone(), modfile);
             } 
         Ok(())
     

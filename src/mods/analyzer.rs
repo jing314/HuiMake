@@ -6,7 +6,6 @@ use crate::{mods::single::{ModFile, ProjectMap}, serde::yaml::{Config, Dep}};
 #[derive(Debug)]
 pub struct ModsManage{
     pub graph: DiGraph<String,()>,
-    pub indices: HashMap<String, NodeIndex>,
     pub project_map: ProjectMap,
 }
 
@@ -14,44 +13,41 @@ impl ModsManage{
     pub fn new()->Self{
         ModsManage { 
             graph:DiGraph::new() , 
-            indices: HashMap::new(), 
             project_map: ProjectMap::new() 
         } 
     }
     
     ///构建mods之间的关联图
-    pub fn gen_mods_depsgraph(path:&PathBuf)->Result<Self,Box<dyn Error>>{
+    pub fn gen_mods_depsgraph(&mut self,path:&PathBuf)->Result<(),Box<dyn Error>>{
+
         logi!("gen_mods_depsgraph path:{:#?}",path);
-
-        //1.获取工具运行目录的现有模块信息
-        let mut project_map = ProjectMap::new();
-        project_map.get_info(path)?;
-
-        let mut graph = DiGraph::new();
         let mut indices = HashMap::new();
 
+        //1.获取工具运行目录的现有模块信息
+        self.project_map.get_info(path)?;
+
         //添加节点
-        for modname in &project_map.modname{
+        for modname in &self.project_map.modname{
             logi!("add mod name is {}",modname);
-            let idx = graph.add_node(modname.clone()); 
+            let idx = self.graph.add_node(modname.clone()); 
             indices.insert(modname.clone(), idx);
         }
 
         //确定边
-        for modname in &project_map.modname{
+        for modname in &self.project_map.modname{
             let cur_idx = indices[modname];
 
             //变量指向此mod的其他mod，添加到图中
-            let cfg = project_map.indices[modname].get_config()?;
+            let cfg = self.project_map.indices[modname].get_config()?;
             let hkmods = &cfg.dep.hkmod;
             for depmod in  hkmods {
                 let dep_mod_clean = Dep::clean_hk_name_string(&depmod);
                 if let Some(&dep_idx) = indices.get(dep_mod_clean.as_str()) {
-                    graph.add_edge(dep_idx, cur_idx, ());
+                    self.graph.add_edge(dep_idx, cur_idx, ());
                 }
             }
         }
-        Ok(ModsManage { graph,indices,project_map })
+        Ok(())
     }
 
     ///获取下一个可以构建的mod列表

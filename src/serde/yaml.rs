@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
-use std::{error::Error, path:: {PathBuf,Path}};
+use std::{
+    error::Error,
+    path::{Path, PathBuf},
+};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Dep {
@@ -7,18 +10,18 @@ pub struct Dep {
     pub hkmod: Vec<String>,
     pub lib: Vec<String>,
 }
-impl Dep{
+impl Dep {
     pub fn clean_hk_name_str(name: &str) -> Option<&str> {
-    Path::new(name)
-        .file_name()    // 获取路径的最后一部分
-        .and_then(|os_str| os_str.to_str())  // OsStr 转 &str
-    }
-    pub fn clean_hk_name_string(name:&String)->String{
         Path::new(name)
-        .file_name()
-        .and_then(|os_str| os_str.to_str())
-        .unwrap_or("")
-        .to_string()
+            .file_name() // 获取路径的最后一部分
+            .and_then(|os_str| os_str.to_str()) // OsStr 转 &str
+    }
+    pub fn clean_hk_name_string(name: &String) -> String {
+        Path::new(name)
+            .file_name()
+            .and_then(|os_str| os_str.to_str())
+            .unwrap_or("")
+            .to_string()
     }
 }
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -42,17 +45,16 @@ impl Config {
             },
         }
     }
-    
+
     pub fn from_yaml(path: &PathBuf) -> Result<Self, Box<dyn Error>> {
         let file = std::fs::File::open(path)?;
         let config: Config = serde_yaml::from_reader(file)?;
-        
+
         Ok(config)
     }
-    
-    pub fn to_yaml(&self) -> Result<String,Box<dyn Error>>{
+
+    pub fn to_yaml(&self) -> Result<String, Box<dyn Error>> {
         let context = serde_yaml::to_string(self)?;
         Ok(context)
     }
-
 }

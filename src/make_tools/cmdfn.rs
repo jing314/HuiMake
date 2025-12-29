@@ -1,53 +1,53 @@
-use std::path::PathBuf;
-use std::error::Error;
-use crate::{logi, logd, loge};
 use crate::mods::{analyzer::ModsManage, single::ModFile};
+use crate::{logd, loge, logi};
+use std::error::Error;
+use std::path::PathBuf;
 
 #[derive(Debug)]
 enum RunSatus {
     ProjectRoot,
     ModRoot,
-    Unknown
+    Unknown,
 }
 
 #[derive(Debug)]
-pub struct CmdNeedData{
-    status:RunSatus,
-    mods:Option<ModsManage>,
-    cur_mod:Option<ModFile>,
+pub struct CmdNeedData {
+    status: RunSatus,
+    mods: Option<ModsManage>,
+    cur_mod: Option<ModFile>,
 }
 
 impl CmdNeedData {
-    pub fn new()->Self{
-        CmdNeedData { 
-            status: RunSatus::Unknown, 
-            mods: None, 
-            cur_mod: None 
+    pub fn new() -> Self {
+        CmdNeedData {
+            status: RunSatus::Unknown,
+            mods: None,
+            cur_mod: None,
         }
     }
 
     ///检测当前工具运行命令环境是 项目根目录 还是 模块根目录
-    pub fn check(&mut self)->Result<(),Box<dyn Error>>{
-        let run_dir = PathBuf::from(".");   //获取当前文件夹路径
-        logi!("check run_dir:{:#?}",run_dir);
+    pub fn check(&mut self) -> Result<(), Box<dyn Error>> {
+        let run_dir = PathBuf::from("."); //获取当前文件夹路径
+        logi!("check run_dir:{:#?}", run_dir);
         let mut manage = ModsManage::new();
-        
+
         //如果是项目根目录
-        if manage.gen_mods_depsgraph(&run_dir).is_ok() {    
-                logd!("{:#?} try gen_mods_depsgraph success",run_dir);
-                self.status = RunSatus::ProjectRoot;
-                self.mods = Some(manage);
-        }else {
+        if manage.gen_mods_depsgraph(&run_dir).is_ok() {
+            logd!("{:#?} try gen_mods_depsgraph success", run_dir);
+            self.status = RunSatus::ProjectRoot;
+            self.mods = Some(manage);
+        } else {
             let mut mod_ = ModFile::new();
-        
+
             //如果是mod目录
-            if mod_.get_info(&run_dir).is_ok(){
-                logd!("{:#?} try get mod info success",run_dir);
+            if mod_.get_info(&run_dir).is_ok() {
+                logd!("{:#?} try get mod info success", run_dir);
                 self.status = RunSatus::ModRoot;
                 self.cur_mod = Some(mod_);
                 manage.gen_mods_depsgraph(&run_dir.join(".."))?;
                 self.mods = Some(manage);
-            }else {
+            } else {
                 self.status = RunSatus::Unknown;
                 return Err("err hk project struct".into());
             }
@@ -57,13 +57,13 @@ impl CmdNeedData {
 
     ///构建命令，构建当前模块以及其所依赖的其余模块
     ///基于其所在目录区分逻辑
-    pub fn build(&mut self,is_run:bool)->Result<(),Box<dyn Error>>{
+    pub fn build(&mut self, is_run: bool) -> Result<(), Box<dyn Error>> {
         match self.status {
-            RunSatus::ModRoot =>{
+            RunSatus::ModRoot => {
                 let mods = self.mods.as_mut().unwrap();
                 loop {
                     let mut next = mods.get_next()?;
-                    if next.is_empty(){
+                    if next.is_empty() {
                         break;
                     }
                     for mod_ in &mut next {
@@ -76,17 +76,15 @@ impl CmdNeedData {
                         }
                     }
                 }
-
             }
-            RunSatus::ProjectRoot =>{
+            RunSatus::ProjectRoot => {
                 let mods = self.mods.as_mut().unwrap();
                 loop {
                     let mut next = mods.get_next()?;
-                    if next.is_empty(){
+                    if next.is_empty() {
                         break;
                     }
                     for mod_ in &mut next {
-        
                         mod_.build()?;
                         if is_run {
                             mod_.run()?;
@@ -94,32 +92,31 @@ impl CmdNeedData {
                     }
                 }
             }
-            RunSatus::Unknown =>{
+            RunSatus::Unknown => {
                 return Err("Err project".into());
             }
         }
-     
-        Ok(())
 
+        Ok(())
     }
-    
+
     ///运行命令
-    pub fn run(&mut self)->Result<(),Box<dyn Error>>{
+    pub fn run(&mut self) -> Result<(), Box<dyn Error>> {
         self.build(true)?;
         Ok(())
     }
 
     ///清理构建文件
-    pub fn clean(&mut self)->Result<(),Box<dyn Error>>{
+    pub fn clean(&mut self) -> Result<(), Box<dyn Error>> {
         match self.status {
-            RunSatus::ModRoot =>{
+            RunSatus::ModRoot => {
                 self.cur_mod.as_mut().unwrap().clean_build()?;
             }
-            RunSatus::ProjectRoot =>{
+            RunSatus::ProjectRoot => {
                 let mods = self.mods.as_mut().unwrap();
                 loop {
                     let mut next = mods.get_next()?;
-                    if next.is_empty(){
+                    if next.is_empty() {
                         break;
                     }
                     for mod_ in &mut next {
@@ -127,7 +124,7 @@ impl CmdNeedData {
                     }
                 }
             }
-            RunSatus::Unknown =>{
+            RunSatus::Unknown => {
                 return Err("Err project".into());
             }
         }
@@ -135,7 +132,7 @@ impl CmdNeedData {
     }
 
     ///生成新项目mod目录
-    pub fn gen(&self,name:&str)->Result<(),Box<dyn Error>>{
+    pub fn gen(&self, name: &str) -> Result<(), Box<dyn Error>> {
         ModFile::gen(name)?;
         Ok(())
     }

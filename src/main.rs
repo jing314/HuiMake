@@ -1,11 +1,16 @@
-mod serde;
-mod mods;
 mod make_tools;
+mod mods;
+mod serde;
 mod utility;
-use std::{error::Error, path::PathBuf};
-use crate::{make_tools::cmdfn::CmdNeedData, mods::{analyzer::ModsManage, single::ModFile}, serde::yaml, utility::logo::print_logo};
 use crate::utility::logo;
+use crate::{
+    make_tools::cmdfn::CmdNeedData,
+    mods::{analyzer::ModsManage, single::ModFile},
+    serde::yaml,
+    utility::logo::print_logo,
+};
 use clap::{CommandFactory, Parser, Subcommand};
+use std::{error::Error, path::PathBuf};
 #[derive(Parser)]
 #[command(
     version = "1.0.0",                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       
@@ -13,70 +18,74 @@ use clap::{CommandFactory, Parser, Subcommand};
     about = "This is a small tool that serves as an alternative to CMake and Makefile.", 
     long_about = None
 )]
-struct Cli{
+struct Cli {
     #[command(subcommand)]
     cmd: Option<Command>,
 }
-#[derive(Debug)]
-#[derive(Subcommand)]
+#[derive(Debug, Subcommand)]
 enum Command {
     /// build project
     Build {
-        #[arg(short, long, help = "build (debug/release) default = debug",default_value = "debug")]
+        #[arg(
+            short,
+            long,
+            help = "build (debug/release) default = debug",
+            default_value = "debug"
+        )]
         mode: Option<String>,
     },
-    
+
     /// clean project mod
-    Clean ,
-    
+    Clean,
+
     /// build and run
-    Run ,
-        
+    Run,
+
     /// new hk project
     New {
-        #[arg(help = "project name",default_value = "new_hk_project")]
+        #[arg(help = "project name", default_value = "new_hk_project")]
         name: Option<String>,
     },
 }
-fn main() ->Result<(),Box<dyn Error>>{
+fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
     let mut cmd_data = CmdNeedData::new();
     // println!("build mode is {:#?}",cmd_data);
     match &cli.cmd {
-        Some(Command::New { name })=>{
+        Some(Command::New { name }) => {
             if let Some(name_vale) = name {
                 cmd_data.gen(name_vale)?;
-            }else {
+            } else {
                 println!("have no name");
             }
         }
-        Some(Command::Build { mode }) =>{
+        Some(Command::Build { mode }) => {
             cmd_data.check()?;
             match mode {
-                Some(value)=>{
-                    if value.eq_ignore_ascii_case("release"){
+                Some(value) => {
+                    if value.eq_ignore_ascii_case("release") {
                         println!("Release Mode");
-                    }else {
+                    } else {
                         cmd_data.build(false)?;
                         println!("Debug Mode");
                     }
                 }
-                _=>{
+                _ => {
                     println!("Debug Mode");
                 }
             }
         }
-        Some(Command::Clean)=>{
+        Some(Command::Clean) => {
             cmd_data.check()?;
             print_logo();
             cmd_data.clean()?;
         }
 
-        Some(Command::Run)=>{
+        Some(Command::Run) => {
             cmd_data.check()?;
             cmd_data.run()?;
         }
-        None =>{
+        None => {
             // 显示帮助信息
             print_logo();
             let mut cmd = Cli::command();

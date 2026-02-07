@@ -1,12 +1,12 @@
-mod make_tools;
-mod mods;
-mod serde;
+mod cli_func;
+mod mods_alyz;
 mod utility;
-use crate::utility::logo;
+
 use crate::{
-    make_tools::cmdfn::CmdNeedData,
-    mods::{analyzer::ModsManage, single::ModFile},
-    serde::yaml,
+    cli_func::cmdfn::CmdNeedData,
+    mods_alyz::{analyzer::ModsManage, single::ModFile},
+    utility::yaml,
+    utility::log,
     utility::logo::print_logo,
 };
 use clap::{CommandFactory, Parser, Subcommand};

@@ -6,7 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::serde::yaml::Config;
+use crate::utility::yaml::Config;
 use crate::{logd, loge, logi};
 
 /// 表示一个模块（mod）的元数据和构建上下文

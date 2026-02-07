@@ -1,4 +1,4 @@
-use crate::mods::{analyzer::ModsManage, single::ModFile};
+use crate::mods_alyz::{analyzer::ModsManage, single::ModFile};
 use crate::{logd, loge, logi};
 use std::error::Error;
 use std::path::PathBuf;

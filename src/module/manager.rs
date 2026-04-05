@@ -1,7 +1,7 @@
 use crate::{logd, loge, logi};
 use crate::{
-    mods_alyz::single::{ModFile, ProjectMap},
-    utility::yaml::{Config, Dep},
+    module::mod_file::{ModFile, ProjectMap},
+    utils::yaml::{Config, Dep},
 };
 use petgraph::{
     graph::{DiGraph, NodeIndex},

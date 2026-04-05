@@ -1,13 +1,12 @@
-mod cli_func;
-mod mods_alyz;
-mod utility;
+mod cli;
+mod module;
+mod utils;
 
 use crate::{
-    cli_func::cmdfn::CmdCtx,
-    mods_alyz::single::ModFile,
-    utility::yaml,
-    utility::log,
-    utility::logo::print_logo,
+    cli::context::CmdCtx,
+    utils::yaml,
+    utils::log,
+    utils::logo::print_logo,
 };
 use clap::{CommandFactory, Parser, Subcommand};
 use std::{error::Error, path::PathBuf};

@@ -7,16 +7,11 @@ use std::{
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Dep {
     pub include: Vec<String>,
-    pub hkmod: Vec<String>,
+    pub mod_deps: Vec<String>,
     pub lib: Vec<String>,
 }
 impl Dep {
-    pub fn clean_hk_name_str(name: &str) -> Option<&str> {
-        Path::new(name)
-            .file_name() // 获取路径的最后一部分
-            .and_then(|os_str| os_str.to_str()) // OsStr 转 &str
-    }
-    pub fn clean_hk_name_string(name: &String) -> String {
+    pub fn clean_mod_name(name: &str) -> String {
         Path::new(name)
             .file_name()
             .and_then(|os_str| os_str.to_str())
@@ -40,7 +35,7 @@ impl Config {
             premacro: Vec::new(),
             dep: Dep {
                 include: Vec::new(),
-                hkmod: Vec::new(),
+                mod_deps: Vec::new(),
                 lib: Vec::new(),
             },
         }

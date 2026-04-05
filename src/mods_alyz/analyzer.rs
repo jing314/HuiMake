@@ -10,43 +10,43 @@ use petgraph::{
 use std::{collections::HashMap, error::Error, path::PathBuf};
 
 #[derive(Debug)]
-pub struct ModsManage {
+pub struct ModMgr {
     pub graph: DiGraph<String, ()>,
     pub project_map: ProjectMap,
 }
 
-impl ModsManage {
+impl ModMgr {
     pub fn new() -> Self {
-        ModsManage {
+        ModMgr {
             graph: DiGraph::new(),
             project_map: ProjectMap::new(),
         }
     }
 
     ///构建mods之间的关联图
-    pub fn gen_mods_depsgraph(&mut self, path: &PathBuf) -> Result<(), Box<dyn Error>> {
-        logi!("gen_mods_depsgraph path:{:#?}", path);
+    pub fn build_dep_graph(&mut self, path: &PathBuf) -> Result<(), Box<dyn Error>> {
+        logi!("build_dep_graph path:{:#?}", path);
         let mut indices = HashMap::new();
 
         //1.获取工具运行目录的现有模块信息
-        self.project_map.get_info(path)?;
+        self.project_map.discover_mods(path)?;
 
         //添加节点
-        for modname in &self.project_map.modname {
+        for modname in &self.project_map.mod_names {
             logi!("add mod name is {}", modname);
             let idx = self.graph.add_node(modname.clone());
             indices.insert(modname.clone(), idx);
         }
 
         //确定边
-        for modname in &self.project_map.modname {
+        for modname in &self.project_map.mod_names {
             let cur_idx = indices[modname];
 
             //变量指向此mod的其他mod，添加到图中
-            let cfg = self.project_map.indices[modname].get_config()?;
-            let hkmods = &cfg.dep.hkmod;
-            for depmod in hkmods {
-                let dep_mod_clean = Dep::clean_hk_name_string(&depmod);
+            let cfg = self.project_map.indices[modname].config()?;
+            let mod_deps = &cfg.dep.mod_deps;
+            for depmod in mod_deps {
+                let dep_mod_clean = Dep::clean_mod_name(depmod);
                 if let Some(&dep_idx) = indices.get(dep_mod_clean.as_str()) {
                     self.graph.add_edge(dep_idx, cur_idx, ());
                 }
@@ -56,11 +56,11 @@ impl ModsManage {
     }
 
     ///获取下一个可以构建的mod列表
-    pub fn get_next(&mut self) -> Result<Vec<ModFile>, Box<dyn Error>> {
+    pub fn get_next_buildable(&mut self) -> Result<Vec<ModFile>, Box<dyn Error>> {
         let mut next_build: Vec<ModFile> = Vec::new();
 
         //获取一个或多个没有入度的图节点
-        let build_list = Self::check_loopdep(self)?;
+        let build_list = Self::find_src_nodes(self)?;
 
         for node_id in &build_list {
             match self.graph.node_weight(*node_id) {
@@ -74,12 +74,12 @@ impl ModsManage {
         }
 
         //删除此节点以及其与其它节点的关系
-        self.del_node(build_list);
+        self.remove_nodes(build_list);
         Ok(next_build)
     }
 
     ///检查是否存在环依赖，返回无入度节点列表
-    fn check_loopdep(&self) -> Result<Vec<NodeIndex>, Box<dyn Error>> {
+    fn find_src_nodes(&self) -> Result<Vec<NodeIndex>, Box<dyn Error>> {
         let graph = &self.graph;
         if graph.node_count() > 0 {
             let list: Vec<NodeIndex> = graph
@@ -101,7 +101,7 @@ impl ModsManage {
     }
 
     ///删除节点
-    fn del_node(&mut self, list: Vec<NodeIndex>) {
+    fn remove_nodes(&mut self, list: Vec<NodeIndex>) {
         for node in list {
             self.graph.remove_node(node);
         }

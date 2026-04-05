@@ -3,8 +3,8 @@ mod mods_alyz;
 mod utility;
 
 use crate::{
-    cli_func::cmdfn::CmdNeedData,
-    mods_alyz::{analyzer::ModsManage, single::ModFile},
+    cli_func::cmdfn::CmdCtx,
+    mods_alyz::single::ModFile,
     utility::yaml,
     utility::log,
     utility::logo::print_logo,
@@ -49,7 +49,7 @@ enum Command {
 }
 fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
-    let mut cmd_data = CmdNeedData::new();
+    let mut cmd_data = CmdCtx::new();
     // println!("build mode is {:#?}",cmd_data);
     match &cli.cmd {
         Some(Command::New { name }) => {
@@ -60,7 +60,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
         Some(Command::Build { mode }) => {
-            cmd_data.check()?;
+            cmd_data.detect_env()?;
             match mode {
                 Some(value) => {
                     if value.eq_ignore_ascii_case("release") {
@@ -76,13 +76,13 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
         Some(Command::Clean) => {
-            cmd_data.check()?;
+            cmd_data.detect_env()?;
             print_logo();
             cmd_data.clean()?;
         }
 
         Some(Command::Run) => {
-            cmd_data.check()?;
+            cmd_data.detect_env()?;
             cmd_data.run()?;
         }
         None => {

@@ -40,14 +40,14 @@ impl ModFile {
     }
 
     /// 从给定路径加载模块信息（目录结构 + 配置）
-    pub fn get_info(&mut self, path: &Path) -> Result<(), Box<dyn Error>> {
+    pub fn load(&mut self, path: &Path) -> Result<(), Box<dyn Error>> {
         logi!("Loading module info from: {:?}", path);
         self.absolute_path = fs::canonicalize(path)?;
 
         // 加载各子目录中的文件
-        self.bin_sources = Self::load_c_files_from_dir(&path.join("bin")).ok();
-        self.lib_sources = Self::load_all_files_from_dir(&path.join("src")).ok();
-        self.include_paths = Self::load_all_files_from_dir(&path.join("include")).ok();
+        self.bin_sources = Self::load_c_files(&path.join("bin")).ok();
+        self.lib_sources = Self::load_all_files(&path.join("src")).ok();
+        self.include_paths = Self::load_all_files(&path.join("include")).ok();
 
         // 加载 YAML 配置
         self.config = Config::from_yaml(&path.join("config.yaml")).ok();
@@ -59,12 +59,12 @@ impl ModFile {
         }
 
         // 从配置中补充 include 路径（依赖模块 + 显式 include）
-        self.merge_includes_from_config()?;
+        self.merge_includes()?;
         Ok(())
     }
 
     /// 获取配置引用，若不存在则返回错误
-    pub fn get_config(&self) -> Result<&Config, Box<dyn Error>> {
+    pub fn config(&self) -> Result<&Config, Box<dyn Error>> {
         self.config
             .as_ref()
             .ok_or_else(|| "Module configuration is missing".into())
@@ -75,7 +75,7 @@ impl ModFile {
         print_logo();
         println!("Building module: {}", self.absolute_path.display());
 
-        self.ensure_build_dirs()?;
+        self.init_build_dirs()?;
         let local_lib = self.build_lib()?; // 构建静态库（.a）
         let object_files = self.build_bin()?; // 编译 bin/ 下的 .c 为 .o
         self.link_executables(&object_files, local_lib)?; // 链接生成可执行文件
@@ -85,7 +85,7 @@ impl ModFile {
 
     /// 运行所有已构建的可执行文件
     pub fn run(&self) -> Result<(), Box<dyn Error>> {
-        let exe_paths = self.get_executable_paths()?;
+        let exe_paths = self.executables()?;
         for exe in exe_paths {
             #[cfg(unix)]
             {
@@ -107,7 +107,7 @@ impl ModFile {
     /// 判断路径是否为有效模块目录（能成功加载 info）
     pub fn is_mod_dir(path: &Path) -> bool {
         let mut mod_file = Self::new();
-        mod_file.get_info(path).is_ok()
+        mod_file.load(path).is_ok()
     }
 
     /// 清理 build/ 目录
@@ -136,8 +136,8 @@ impl ModFile {
 
     // ———————————————————————— 私有辅助方法 ————————————————————————
     /// 获取所有可执行文件路径（build/bin/ 下）
-    fn get_executable_paths(&self) -> Result<Vec<PathBuf>, Box<dyn Error>> {
-        let bin_dir = self.get_build_bin_path()?;
+    fn executables(&self) -> Result<Vec<PathBuf>, Box<dyn Error>> {
+        let bin_dir = self.build_bin_path()?;
         let mut paths = Vec::new();
 
         if let Some(bin_list) = &self.bin_sources {
@@ -165,8 +165,8 @@ impl ModFile {
         let lib_name = self.name.as_str();
         let target_triple = "x86_64-unknown-linux-gnu"; // TODO: 支持多平台
 
-        let object_dir = self.get_build_object_path()?;
-        let lib_dir = self.get_build_lib_path()?;
+        let object_dir = self.build_obj_path()?;
+        let lib_dir = self.build_lib_path()?;
 
         // 使用 cc 构建静态库
         let mut builder = Build::new();
@@ -199,7 +199,7 @@ impl ModFile {
 
     /// 编译 bin/ 下的 .c 文件为 .o 对象文件
     fn build_bin(&mut self) -> Result<Vec<PathBuf>, Box<dyn Error>> {
-        let object_dir = self.get_build_object_path()?;
+        let object_dir = self.build_obj_path()?;
 
         // 若无二进制源文件，直接返回空
         let sources = match &self.bin_sources {
@@ -233,12 +233,12 @@ impl ModFile {
     }
 
     /// 获取依赖模块的库路径和链接目录
-    fn get_dependency_libs(&self) -> Result<(Vec<PathBuf>, Vec<PathBuf>), Box<dyn Error>> {
-        let config = self.get_config()?;
+    fn dep_libs(&self) -> Result<(Vec<PathBuf>, Vec<PathBuf>), Box<dyn Error>> {
+        let config = self.config()?;
         let mut lib_dirs = Vec::new();
         let mut lib_files = Vec::new();
 
-        for dep_name in &config.dep.hkmod {
+        for dep_name in &config.dep.mod_deps {
             let dep_root = self.absolute_path.join(dep_name);
             let lib_dir = dep_root.join("build").join("lib");
             let lib_file = lib_dir.join(format!("lib{}.a", dep_name));
@@ -255,10 +255,10 @@ impl ModFile {
         object_files: &[PathBuf],
         local_lib: Option<PathBuf>,
     ) -> Result<(), Box<dyn Error>> {
-        let bin_out_dir = self.get_build_bin_path()?;
-        let local_lib_dir = self.get_build_lib_path()?;
+        let bin_out_dir = self.build_bin_path()?;
+        let local_lib_dir = self.build_lib_path()?;
 
-        let (dep_lib_dirs, dep_lib_files) = self.get_dependency_libs()?;
+        let (dep_lib_dirs, dep_lib_files) = self.dep_libs()?;
 
         for obj in object_files {
             let exe = bin_out_dir.join(
@@ -281,7 +281,7 @@ impl ModFile {
             }
 
             cmd.arg("-o").arg(&exe);
-            for sys_lib in self.get_system_libs() {
+            for sys_lib in self.sys_libs() {
                 cmd.arg(sys_lib);
             }
 
@@ -295,7 +295,7 @@ impl ModFile {
     }
 
     /// 从配置中提取系统库（如 -lpthread）
-    fn get_system_libs(&self) -> Vec<String> {
+    fn sys_libs(&self) -> Vec<String> {
         self.config
             .iter()
             .flat_map(|cfg| &cfg.dep.lib)
@@ -304,7 +304,7 @@ impl ModFile {
     }
 
     /// 确保 build/ 子目录存在
-    fn ensure_build_dirs(&self) -> Result<(), Box<dyn Error>> {
+    fn init_build_dirs(&self) -> Result<(), Box<dyn Error>> {
         let base = self.absolute_path.join("build");
         for subdir in ["bin", "object", "lib"] {
             fs::create_dir_all(base.join(subdir))?;
@@ -314,7 +314,7 @@ impl ModFile {
     }
 
     /// 获取构建输出路径（带存在性检查）
-    fn get_build_bin_path(&self) -> Result<PathBuf, Box<dyn Error>> {
+    fn build_bin_path(&self) -> Result<PathBuf, Box<dyn Error>> {
         let path = self.absolute_path.join("build").join("bin");
         if !path.exists() {
             return Err("build bin path not exists".into());
@@ -322,7 +322,7 @@ impl ModFile {
         Ok(path)
     }
 
-    fn get_build_object_path(&self) -> Result<PathBuf, Box<dyn Error>> {
+    fn build_obj_path(&self) -> Result<PathBuf, Box<dyn Error>> {
         let path = self.absolute_path.join("build").join("object");
         if !path.exists() {
             return Err("build object path not exists".into());
@@ -330,7 +330,7 @@ impl ModFile {
         Ok(path)
     }
 
-    fn get_build_lib_path(&self) -> Result<PathBuf, Box<dyn Error>> {
+    fn build_lib_path(&self) -> Result<PathBuf, Box<dyn Error>> {
         let path = self.absolute_path.join("build").join("lib");
         if !path.exists() {
             return Err("build lib path not exists".into());
@@ -341,7 +341,7 @@ impl ModFile {
     /// 从 config.yaml 合并 include 路径：
     /// - 依赖模块的 include/
     /// - 配置中显式列出的 include 路径
-    fn merge_includes_from_config(&mut self) -> Result<(), Box<dyn Error>> {
+    fn merge_includes(&mut self) -> Result<(), Box<dyn Error>> {
         let config = match &self.config {
             Some(cfg) => cfg,
             None => return Err(format!("No config found in {:?}", self.absolute_path).into()), // 无配置则跳过
@@ -350,7 +350,7 @@ impl ModFile {
         let includes = self.include_paths.get_or_insert_with(Vec::new);
 
         // 添加依赖模块的 include/
-        for dep in &config.dep.hkmod {
+        for dep in &config.dep.mod_deps {
             let path = self.absolute_path.join(dep).join("include");
             if let Ok(abs) = fs::canonicalize(&path) {
                 if !includes.contains(&abs) {
@@ -377,7 +377,7 @@ impl ModFile {
     }
 
     /// 加载目录下所有 .c 文件（用于 bin/）
-    fn load_c_files_from_dir(dir: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
+    fn load_c_files(dir: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
         logi!("Scanning C files in: {:?}", dir);
         let mut files = Vec::new();
 
@@ -398,7 +398,7 @@ impl ModFile {
     }
 
     /// 加载目录下所有文件（用于 src/ 和 include/）
-    fn load_all_files_from_dir(dir: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
+    fn load_all_files(dir: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
         logi!("Scanning all files in: {:?}", dir);
         let mut files = Vec::new();
 
@@ -419,7 +419,7 @@ impl ModFile {
 
 #[derive(Debug)]
 pub struct ProjectMap {
-    pub modname: Vec<String>,
+    pub mod_names: Vec<String>,
     pub indices: HashMap<String, ModFile>,
     pub index: HashMap<String, PathBuf>,
 }
@@ -427,12 +427,12 @@ pub struct ProjectMap {
 impl ProjectMap {
     pub fn new() -> Self {
         ProjectMap {
-            modname: Vec::new(),
+            mod_names: Vec::new(),
             indices: HashMap::new(),
             index: HashMap::new(),
         }
     }
-    pub fn get_info(&mut self, path: &PathBuf) -> Result<(), Box<dyn Error>> {
+    pub fn discover_mods(&mut self, path: &PathBuf) -> Result<(), Box<dyn Error>> {
         let current_dir = path.clone();
 
         //读取当前目录下的所有模块目录
@@ -456,8 +456,8 @@ impl ProjectMap {
 
         for path in &mods {
             let mut modfile = ModFile::new();
-            modfile.get_info(path)?;
-            self.modname.push(modfile.name.clone());
+            modfile.load(path)?;
+            self.mod_names.push(modfile.name.clone());
             self.index.insert(modfile.name.clone(), path.clone());
             self.indices.insert(modfile.name.clone(), modfile);
         }

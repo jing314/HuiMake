@@ -161,9 +161,13 @@ impl ModFile {
             return Ok(None);
         }
 
-        // let config = self.get_config()?;
+        let config = self.config()?;
         let lib_name = self.name.as_str();
-        let target_triple = "x86_64-unknown-linux-gnu"; // TODO: 支持多平台
+        let target = config
+            .compiler
+            .target
+            .as_deref()
+            .unwrap_or("x86_64-unknown-linux-gnu");
 
         let object_dir = self.build_obj_path()?;
         let lib_dir = self.build_lib_path()?;
@@ -177,13 +181,20 @@ impl ModFile {
             builder.includes(includes);
         }
 
+        // 从配置应用编译参数
         builder
-            .target(target_triple)
-            .host(target_triple)
-            .cpp(false) // TODO: 从 config 推断
+            .target(target)
+            .host(target)
+            .std(&config.std)
             .out_dir(&object_dir)
-            .opt_level(2)
-            .compile(lib_name);
+            .opt_level(2);
+
+        // 应用全局宏定义
+        for macro_def in &config.premacro {
+            builder.define(macro_def.as_str(), None);
+        }
+
+        builder.compile(lib_name);
 
         // 移动库文件到 build/lib/
         let lib_file = if cfg!(windows) {
@@ -200,6 +211,7 @@ impl ModFile {
     /// 编译 bin/ 下的 .c 文件为 .o 对象文件
     fn build_bin(&mut self) -> Result<Vec<PathBuf>, Box<dyn Error>> {
         let object_dir = self.build_obj_path()?;
+        let config = self.config()?;
 
         // 若无二进制源文件，直接返回空
         let sources = match &self.bin_sources {
@@ -207,6 +219,7 @@ impl ModFile {
             _ => return Ok(Vec::new()),
         };
 
+        let cc = &config.compiler.cc;
         let mut object_files = Vec::new();
         for source in sources {
             let stem = source
@@ -214,12 +227,33 @@ impl ModFile {
                 .ok_or_else(|| format!("Invalid source filename: {}", source.display()))?;
             let obj = object_dir.join(stem).with_extension("o");
 
-            let mut cmd = Command::new("gcc");
+            let mut cmd = Command::new(cc);
+
+            // 编译标准
+            cmd.arg(format!("-std={}", config.std));
+
+            // 全局宏定义
+            for macro_def in &config.premacro {
+                cmd.arg(format!("-D{}", macro_def));
+            }
+
+            // include 路径
             if let Some(includes) = &self.include_paths {
                 for inc in includes {
                     cmd.arg("-I").arg(inc);
                 }
             }
+
+            // sysroot（交叉编译）
+            if let Some(sysroot) = &config.compiler.sysroot {
+                cmd.arg("--sysroot").arg(sysroot);
+            }
+
+            // 额外 flags
+            for flag in &config.compiler.flags {
+                cmd.arg(flag);
+            }
+
             cmd.arg("-c").arg(source).arg("-o").arg(&obj);
 
             logi!("Compiling: {:?}", cmd);
@@ -259,6 +293,8 @@ impl ModFile {
         let local_lib_dir = self.build_lib_path()?;
 
         let (dep_lib_dirs, dep_lib_files) = self.dep_libs()?;
+        let config = self.config()?;
+        let cc = &config.compiler.cc;
 
         for obj in object_files {
             let exe = bin_out_dir.join(
@@ -266,7 +302,7 @@ impl ModFile {
                     .ok_or_else(|| format!("Invalid object file: {}", obj.display()))?,
             );
 
-            let mut cmd = Command::new("gcc");
+            let mut cmd = Command::new(cc);
             cmd.arg("-L").arg(&local_lib_dir);
             for dir in &dep_lib_dirs {
                 cmd.arg("-L").arg(dir);
@@ -281,6 +317,17 @@ impl ModFile {
             }
 
             cmd.arg("-o").arg(&exe);
+
+            // sysroot（交叉编译）
+            if let Some(sysroot) = &config.compiler.sysroot {
+                cmd.arg("--sysroot").arg(sysroot);
+            }
+
+            // 额外 flags
+            for flag in &config.compiler.flags {
+                cmd.arg(flag);
+            }
+
             for sys_lib in self.sys_libs() {
                 cmd.arg(sys_lib);
             }

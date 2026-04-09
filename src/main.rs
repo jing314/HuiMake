@@ -12,10 +12,10 @@ use clap::{CommandFactory, Parser, Subcommand};
 use std::{error::Error, path::PathBuf};
 #[derive(Parser)]
 #[command(
-    version = "1.0.0",                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       
-    author = "hui", 
-    about = "This is a small tool that serves as an alternative to CMake and Makefile.", 
-    long_about = None
+    version = "1.0.0",
+    author = "hui",
+    about = "A lightweight build tool as an alternative to CMake and Makefile for C projects.",
+    long_about = "HuiMake scans your project directory for modules, resolves dependencies between them,\nand orchestrates the build order automatically. Each module is a directory with its own\nconfig.yaml describing dependencies, compiler settings, and more."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -23,26 +23,26 @@ struct Cli {
 }
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// build project
+    /// Build the current module or entire project
     Build {
         #[arg(
             short,
             long,
-            help = "build (debug/release) default = debug",
+            help = "Build mode: debug or release (default: debug)",
             default_value = "debug"
         )]
         mode: Option<String>,
     },
 
-    /// clean project mod
+    /// Remove all build artifacts (build/ directory)
     Clean,
 
-    /// build and run
+    /// Build and run the module or project
     Run,
 
-    /// new hk project
+    /// Create a new module with the standard directory structure
     New {
-        #[arg(help = "project name", default_value = "new_hk_project")]
+        #[arg(help = "Name of the new module to create", default_value = "new_hk_project")]
         name: Option<String>,
     },
 }

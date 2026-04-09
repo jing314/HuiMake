@@ -20,11 +20,44 @@ impl Dep {
     }
 }
 #[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Compiler {
+    /// 交叉编译器名，默认 gcc
+    #[serde(default = "default_cc")]
+    pub cc: String,
+    /// 目标三元组，如 aarch64-unknown-linux-gnu
+    #[serde(default)]
+    pub target: Option<String>,
+    /// sysroot 路径，用于交叉编译
+    #[serde(default)]
+    pub sysroot: Option<String>,
+    /// 额外编译参数
+    #[serde(default)]
+    pub flags: Vec<String>,
+}
+
+fn default_cc() -> String {
+    "gcc".to_string()
+}
+
+impl Default for Compiler {
+    fn default() -> Self {
+        Compiler {
+            cc: default_cc(),
+            target: None,
+            sysroot: None,
+            flags: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
     pub name: String,
     pub std: String,
     pub premacro: Vec<String>,
     pub dep: Dep,
+    #[serde(default)]
+    pub compiler: Compiler,
 }
 
 impl Config {
@@ -38,6 +71,7 @@ impl Config {
                 mod_deps: Vec::new(),
                 lib: Vec::new(),
             },
+            compiler: Compiler::default(),
         }
     }
 

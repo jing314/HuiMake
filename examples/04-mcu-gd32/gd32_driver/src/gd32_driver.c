@@ -1,7 +1,7 @@
 #include "gd32_driver.h"
 
-/* 真实工程里这里会 #include "gd32f30x.h" 并调用固件库，
-   示例保持零依赖，便于在没有 SDK 的机器上核对编译参数。 */
+/* A real project would #include "gd32f30x.h" and call the firmware library here.
+      This example stays dependency-free so --print-plan can check the flags anywhere. */
 
 static int s_led;
 

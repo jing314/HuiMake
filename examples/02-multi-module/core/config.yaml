@@ -1,4 +1,4 @@
-# 基础库：静态库，对外传播头文件目录与宏
+# Base library: a static library that exports its header directory and a macro
 name: core
 kind: static-lib
 std: c11
@@ -7,4 +7,4 @@ include: [include]
 
 public:
   defines: [CORE_VERSION=2]
-  include: [include]      # include 目录本来就默认公开，这里显式写出来便于阅读
+  include: [include]      # include/ is public by default; spelled out here for readability

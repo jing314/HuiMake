@@ -1,5 +1,6 @@
-# GD32F303CCT6 裸机示范工程（arm-none-eabi-gcc + GD32 固件库布局）
-# 与 STM32 示例的区别：自定义工具链名、自定义配置档名、GD32 固件库目录、逐文件优化等级。
+# GD32F303CCT6 bare-metal example (arm-none-eabi-gcc with the GD32 firmware library layout)
+# Differences from the STM32 example: a custom toolchain name, custom profile names, a GD32
+# firmware library directory and a per-file optimisation level.
 version: 1
 project: gd32f303-demo
 default_target: gd32f303

@@ -1,10 +1,11 @@
-# 多模块示范：3 种产物类型 + 跨模块依赖 + 公共接口传播
+# Multi-module example: three artifact kinds, cross-module dependencies and a public interface
 version: 1
 project: multi-module-demo
 default_target: host
 default_mode: debug
 
-# 内置已有 host / clang-host 目标与 debug / release 配置档，这里只做微调示范：
+# The built-in config already provides host / clang-host targets and debug / release profiles;
+# this file only shows a small override:
 profiles:
   release:
     cflags: [-O2, -Wall, -Wextra]

@@ -1,8 +1,8 @@
-//! 模块级配置：config.yaml。
+//! Module-level configuration (config.yaml).
 //!
-//! 支持 executable / static-lib / shared-lib / object / header-only 五类产物，
-//! 全局宏（defines/undefines）、include 目录、多源 glob、按目标（for target）覆盖、
-//! 系统库/静态库/动态库链接、链接脚本、rpath 等常见编译场景。
+//! Supports five artifact kinds (executable / static-lib / shared-lib / object /
+//! header-only), global macros, include directories, multi-source globs, per-target
+//! overrides, static/shared/system library linking, linker scripts, rpath and more.
 
 use super::Kind;
 use crate::error::{HkError, Result};
@@ -13,54 +13,55 @@ use std::path::Path;
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
-    /// 模块名，缺省取目录名。
+    /// Module name; defaults to the directory name.
     #[serde(default)]
     pub name: Option<String>,
-    /// 产物类型。
+    /// Kind of artifact to produce.
     #[serde(default)]
     pub kind: Kind,
-    /// C 标准，例如 c99 / c11 / gnu11。
+    /// C standard, e.g. c99 / c11 / gnu11.
     #[serde(default)]
     pub std: Option<String>,
-    /// C++ 标准，例如 c++17。
+    /// C++ standard, e.g. c++17.
     #[serde(default)]
     pub cxx_std: Option<String>,
-    /// 源码 glob（相对模块目录）；缺省扫描 src/ 与 bin/。
+    /// Source globs relative to the module directory; defaults to scanning src/ and bin/.
     #[serde(default)]
     pub sources: Vec<String>,
-    /// 排除的 glob。
+    /// Globs to exclude.
     #[serde(default)]
     pub exclude: Vec<String>,
-    /// 对外暴露的头文件目录（相对模块目录），缺省 include。
+    /// Header directories exposed to dependents (relative to the module directory);
+    /// defaults to include/.
     #[serde(default)]
     pub include: Option<Vec<String>>,
-    /// 仅本模块使用的额外头文件目录（相对模块目录）。
+    /// Extra header directories used by this module only.
     #[serde(default)]
     pub include_dirs: Vec<String>,
-    /// 全局宏声明，例如 VERSION="1.0"、DEBUG。
+    /// Global macro definitions, e.g. VERSION="1.0" or DEBUG.
     #[serde(default)]
     pub defines: Vec<String>,
-    /// 取消的宏。
+    /// Macros to undefine.
     #[serde(default)]
     pub undefines: Vec<String>,
-    /// 依赖。
+    /// Dependencies.
     #[serde(default)]
     pub deps: Dependencies,
-    /// 对外传播的编译接口（被依赖时生效）。
+    /// Public interface propagated to dependents.
     #[serde(default)]
     pub public: Public,
     #[serde(default)]
     pub compile: CompileOpts,
     #[serde(default)]
     pub link: LinkOpts,
-    /// 产物名，缺省取模块名。
+    /// Artifact name; defaults to the module name.
     #[serde(default)]
     pub output: Option<String>,
-    /// 针对特定目标的覆盖：targets: { arm-none-eabi: {...} }。
+    /// Per-target overrides, e.g. targets: { cortex-m4f: {...} }.
     #[serde(default)]
     pub targets: IndexMap<String, TargetOverride>,
 
-    // ---- 0.1 兼容字段（会被自动折叠到新字段，并打印废弃告警）----
+    // ---- 0.1 compatibility fields (folded into the new ones, with a warning) ----
     #[serde(default)]
     pub premacro: Vec<String>,
     #[serde(default)]
@@ -72,19 +73,19 @@ pub struct Config {
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Dependencies {
-    /// 本工程内的模块依赖（同级目录名）。
+    /// Modules of this project (sibling directories).
     #[serde(default)]
     pub mods: Vec<String>,
-    /// 系统库，渲染为 -lxxx。
+    /// System libraries, rendered as -lxxx.
     #[serde(default)]
     pub system: Vec<String>,
-    /// 静态库：写文件名/路径则直接参与链接，写裸名则按 -l 处理。
+    /// Static libraries: a path is linked directly, a bare name becomes -l<name>.
     #[serde(default, rename = "static")]
     pub static_libs: Vec<String>,
-    /// 动态库：同上。
+    /// Shared libraries: same rules as above.
     #[serde(default, rename = "shared")]
     pub shared_libs: Vec<String>,
-    /// -L 搜索目录。
+    /// -L search directories.
     #[serde(default)]
     pub lib_dirs: Vec<String>,
 }
@@ -92,16 +93,16 @@ pub struct Dependencies {
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Public {
-    /// 对外暴露的头文件目录。
+    /// Header directories exposed to dependents.
     #[serde(default)]
     pub include: Vec<String>,
-    /// 对外暴露的额外头文件目录（本模块的 include_dirs 默认不传播）。
+    /// Extra header directories exposed to dependents (plain include_dirs are private).
     #[serde(default)]
     pub include_dirs: Vec<String>,
-    /// 对外传播的宏（例如 MCU 的器件宏 STM32F407xx）。
+    /// Macros propagated to dependents (e.g. the MCU part macro STM32F407xx).
     #[serde(default)]
     pub defines: Vec<String>,
-    /// 对外传播的编译参数（例如需要的架构宏）。
+    /// Compile flags propagated to dependents.
     #[serde(default)]
     pub cflags: Vec<String>,
 }
@@ -113,7 +114,7 @@ pub struct CompileOpts {
     pub flags: Vec<String>,
     #[serde(default)]
     pub cxx_flags: Vec<String>,
-    /// 逐文件追加参数：src/slow.c: ["-O0"]。
+    /// Per-file extra flags, e.g. src/slow.c: ["-O0"].
     #[serde(default)]
     pub per_file: IndexMap<String, Vec<String>>,
 }
@@ -126,10 +127,10 @@ pub struct LinkOpts {
     /// -Wl,-rpath,<dir>
     #[serde(default)]
     pub rpath: Vec<String>,
-    /// 以 --whole-archive 方式链接的库。
+    /// Libraries linked with --whole-archive.
     #[serde(default)]
     pub whole_archive: Vec<String>,
-    /// 直接参与链接的额外目标文件 / 归档。
+    /// Extra object files / archives passed straight to the link step.
     #[serde(default)]
     pub extra_objects: Vec<String>,
     #[serde(default)]
@@ -140,15 +141,15 @@ pub struct LinkOpts {
     pub nostdlib: bool,
     #[serde(default)]
     pub nostartfiles: bool,
-    /// 裸库名是否用 -Wl,-Bstatic 包裹，强制静态链接。
+    /// Wrap bare library names in -Wl,-Bstatic to force static linking.
     #[serde(default)]
     pub static_link: bool,
-    /// 仅 shared-lib 追加的参数。
+    /// Extra flags used only for shared libraries.
     #[serde(default)]
     pub shared_flags: Vec<String>,
 }
 
-/// 针对特定目标的模块覆盖。
+/// Per-target module overrides.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct TargetOverride {
@@ -178,7 +179,7 @@ pub struct TargetOverride {
     pub deps: Dependencies,
 }
 
-/// 0.1 旧字段。
+/// 0.1 compatibility fields.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct LegacyDep {
@@ -197,18 +198,18 @@ impl Config {
         Ok(cfg)
     }
 
-    /// 把 0.1 的旧字段折叠到新字段，并提示用户迁移。
+    /// Fold the 0.1 fields into the new ones and tell the user to migrate.
     pub fn normalize(&mut self, source: &str) -> Result<()> {
         if !self.premacro.is_empty() {
             crate::log_warn!(
-                "{source}: premacro 已改名 defines，两者都会生效，请尽快迁移"
+                "{source}: premacro was renamed to defines; both are honoured, please migrate"
             );
             let old = std::mem::take(&mut self.premacro);
             self.defines.extend(old);
         }
         if let Some(legacy) = self.dep.take() {
             crate::log_warn!(
-                "{source}: dep.mod_deps / dep.lib / dep.include 已迁移到 deps.mods / deps.system / include_dirs"
+                "{source}: dep.mod_deps / dep.lib / dep.include moved to deps.mods / deps.system / include_dirs"
             );
             self.deps.mods.extend(legacy.mod_deps);
             self.deps.system.extend(legacy.lib);
@@ -217,7 +218,7 @@ impl Config {
         }
         if self.compiler.is_some() {
             crate::log_warn!(
-                "{source}: compiler 段已废弃，编译器与交叉编译参数统一在工程根 hk.yaml 的 toolchains/targets 中配置"
+                "{source}: the compiler section is obsolete; compiler and cross-compilation settings\n                 belong to toolchains/targets in the project hk.yaml"
             );
             self.compiler = None;
         }
@@ -233,14 +234,14 @@ impl Config {
         dir.file_name()
             .and_then(|n| n.to_str())
             .map(|n| n.to_string())
-            .ok_or_else(|| HkError::new(format!("无法推断模块名: {}", dir.display())))
+            .ok_or_else(|| HkError::new(format!("cannot infer a module name from {}", dir.display())))
     }
 
     pub fn output_name(&self) -> Option<&str> {
         self.output.as_deref().filter(|s| !s.trim().is_empty())
     }
 
-    /// 缺省源码扫描范围。
+    /// Default source scan.
     pub fn default_sources(&self) -> Vec<String> {
         if self.sources.is_empty() {
             vec![
@@ -259,7 +260,7 @@ impl Config {
         }
     }
 
-    /// 对外暴露的头文件目录。
+    /// Header directories exposed to dependents.
     pub fn public_includes(&self) -> Vec<String> {
         let mut dirs = match &self.include {
             Some(list) => list.clone(),
@@ -275,24 +276,24 @@ impl Config {
     pub fn validate(&self, source: &str) -> Result<()> {
         for pattern in self.sources.iter().chain(self.targets.values().flat_map(|t| t.sources.iter())) {
             check_relative_glob(pattern)
-                .map_err(|e| e.context(format!("{source}: sources 中的 {pattern:?} 不合法")))?;
+                .map_err(|e| e.context(format!("{source}: invalid sources pattern {pattern:?}")))?;
         }
         for pattern in self.exclude.iter().chain(self.targets.values().flat_map(|t| t.exclude.iter())) {
             check_relative_glob(pattern)
-                .map_err(|e| e.context(format!("{source}: exclude 中的 {pattern:?} 不合法")))?;
+                .map_err(|e| e.context(format!("{source}: invalid exclude pattern {pattern:?}")))?;
         }
         if let Some(std) = &self.std {
             if std.trim().is_empty() {
-                crate::hk_bail!("{source}: std 不能为空");
+                crate::hk_bail!("{source}: std must not be empty");
             }
         }
         if self.kind == Kind::HeaderOnly && !self.sources.is_empty() {
-            crate::log_warn!("{source}: header-only 模块会忽略 sources 配置");
+            crate::log_warn!("{source}: header-only modules ignore the sources setting");
         }
         Ok(())
     }
 
-    /// 合并某个目标的覆盖，得到该目标下真正生效的配置视图。
+    /// Merge a target override to get the configuration that is effective for it.
     pub fn for_target(&self, target: &str) -> ConfigView<'_> {
         ConfigView { base: self, over: self.targets.get(target) }
     }
@@ -301,15 +302,15 @@ impl Config {
 fn check_relative_glob(pattern: &str) -> Result<()> {
     let normalized = crate::glob::normalize_slashes(pattern);
     if normalized.starts_with('/') || normalized.contains("..") {
-        crate::hk_bail!("必须使用模块目录内的相对 glob（不支持绝对路径或 ..）");
+        crate::hk_bail!("globs must be relative to the module directory (absolute paths and .. are not supported)");
     }
     if normalized.is_empty() {
-        crate::hk_bail!("glob 不能为空");
+        crate::hk_bail!("glob must not be empty");
     }
     Ok(())
 }
 
-/// 基础配置 + 目标覆盖的只读视图。
+/// Read-only view of the base config plus a target override.
 pub struct ConfigView<'a> {
     pub base: &'a Config,
     pub over: Option<&'a TargetOverride>,
@@ -411,7 +412,7 @@ impl<'a> ConfigView<'a> {
         out
     }
 
-    /// 仅目标覆盖里对外暴露的头文件目录。
+    /// Header directories exposed by the target override.
     pub fn public_target_includes(&self) -> Vec<String> {
         self.over.map(|over| over.include.clone()).unwrap_or_default()
     }
@@ -550,6 +551,6 @@ compiler:
         let err = crate::config::parse_yaml_str::<Config>("kind: executable\nkinds: 1\n")
             .unwrap_err()
             .to_string();
-        assert!(err.contains("kinds"), "应指出未知字段: {err}");
+        assert!(err.contains("kinds"), "should name the unknown field: {err}");
     }
 }

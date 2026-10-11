@@ -1,4 +1,11 @@
-//! 极简日志：级别由 -v 控制，全部写 stderr（stdout 留给 --print-plan 等可管道输出）。
+//! Minimal logging.
+//!
+//! Everything is written to stderr so that stdout stays usable for --print-plan.
+//! The default level depends on how hk itself was built:
+//!   * debug build   -> INFO  (per-step progress)
+//!   * release build -> WARN  (warnings, errors and the final summary only)
+//!
+//! -v / -vv raise the level, -q lowers it.
 
 use std::fmt;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -11,7 +18,13 @@ pub const INFO: u8 = 3;
 pub const DEBUG: u8 = 4;
 pub const TRACE: u8 = 5;
 
-static LEVEL: AtomicU8 = AtomicU8::new(INFO);
+/// Default level for this build of hk.
+#[cfg(debug_assertions)]
+pub const DEFAULT_LEVEL: u8 = INFO;
+#[cfg(not(debug_assertions))]
+pub const DEFAULT_LEVEL: u8 = WARN;
+
+static LEVEL: AtomicU8 = AtomicU8::new(DEFAULT_LEVEL);
 static LOCK: Mutex<()> = Mutex::new(());
 
 pub fn set_level(level: u8) {
@@ -26,7 +39,8 @@ pub fn enabled(level: u8) -> bool {
     self::level() >= level
 }
 
-/// 把所有日志写在同一把锁里，避免并行构建时多行输出互相穿插。
+/// Write one log line. All logging shares a single lock so that parallel builds
+/// never interleave partial lines.
 pub fn log_line(level: u8, args: fmt::Arguments<'_>) {
     if !enabled(level) {
         return;
@@ -42,7 +56,7 @@ pub fn log_line(level: u8, args: fmt::Arguments<'_>) {
     eprintln!("[{tag}] {args}");
 }
 
-/// 一次性输出整块文本（例如编译器诊断），避免多行被并行任务穿插。
+/// Print a whole block at once (e.g. compiler diagnostics) under the same lock.
 pub fn print_block(text: &str) {
     let trimmed = text.trim_end();
     if trimmed.is_empty() {
@@ -52,7 +66,7 @@ pub fn print_block(text: &str) {
     eprintln!("{trimmed}");
 }
 
-/// 不带级别前缀的进度输出（同样加锁，保证整行原子）。
+/// Level-independent progress/result output (build summary, artifacts, size report).
 pub fn print_line(text: impl AsRef<str>) {
     let _guard = LOCK.lock();
     eprintln!("{}", text.as_ref());

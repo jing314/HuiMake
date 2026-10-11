@@ -1,4 +1,4 @@
-# 动态库：本工程会产出 libmotion.so / motion.dll（由 host 平台决定后缀）
+# Shared library: produces libmotion.so / libmotion.dll (suffix depends on the host)
 name: motion
 kind: shared-lib
 std: c11

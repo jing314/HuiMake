@@ -1,7 +1,8 @@
-//! 单模块构建计划：源码扫描 → 编译 → 打包/链接 → 链接后处理。
+//! Build plan of a single module: scan sources, compile, archive/link, post-process.
 //!
-//! 计划是纯数据（步骤 + 命令行 + 签名），既可以直接执行，也可以在 --print-plan
-//! 模式下只打印，便于在没有交叉工具链的机器上核对 MCU 编译参数。
+//! A plan is pure data (steps, command lines, signatures). It can either be executed
+//! or merely printed with --print-plan, which lets you check MCU flags on a machine
+//! without the cross toolchain installed.
 
 use crate::config::{ConfigView, Kind, Naming, PostAction, Profile, Target, Toolchain};
 use crate::error::{HkError, Result};
@@ -26,11 +27,11 @@ pub struct Step {
     pub module: String,
     pub action: &'static str,
     pub cmd: Cmd,
-    /// 成功后写入的签名文件与内容（用于增量判断）。
+    /// Signature file and content written on success (used for incremental checks).
     pub sig_file: Option<(PathBuf, String)>,
-    /// 该步骤产出的文件（objcopy / objdump 需要）。
+    /// File produced by this step (needed by objcopy / objdump).
     pub artifact: Option<PathBuf>,
-    /// 传给子进程的临时目录（执行前会创建）。
+    /// Temp directory passed to the child process (created before running).
     pub temp_dir: Option<PathBuf>,
     pub kind: StepKind,
 }
@@ -40,13 +41,13 @@ pub struct ModulePlan {
     pub module: String,
     pub kind: Kind,
     pub has_cxx: bool,
-    /// 0: 编译 1: 打包/链接 2: 链接后处理；阶段内可并行执行。
+    /// 0: compile, 1: archive/link, 2: post-link. Steps inside one phase run in parallel.
     pub phases: [Vec<Step>; 3],
-    /// 已是最新、无需执行的步骤数。
+    /// Number of steps that were already up to date.
     pub skipped: usize,
-    /// 该模块产出的最终产物。
+    /// Final artifacts of the module.
     pub artifacts: Vec<PathBuf>,
-    /// 该模块产出的可执行文件（hk run 使用）。
+    /// Executables produced by the module (used by hk run).
     pub executables: Vec<PathBuf>,
 }
 
@@ -70,7 +71,7 @@ impl ModulePlan {
 
 pub struct PlanCtx<'a> {
     pub project: &'a Project,
-    /// 工程根（用于解析 target 中配置的相对路径）。
+    /// Project root, used to resolve relative paths from the target config.
     pub project_root: &'a Path,
     pub target_name: &'a str,
     pub target: &'a Target,
@@ -114,7 +115,7 @@ struct SourceUnit {
     kind: SourceKind,
 }
 
-/// 链接时某个依赖模块贡献出的输入（归档 / 动态库 / 目标文件）。
+/// Inputs a dependency module contributes to the link step (archive / shared lib / objects).
 pub fn dep_artifacts(ctx: &PlanCtx<'_>, dep: &str) -> Result<Vec<PathBuf>> {
     let info = ctx.project.module(dep)?;
     let build = info.dir.join(ctx.build_dir);
@@ -129,7 +130,7 @@ pub fn dep_artifacts(ctx: &PlanCtx<'_>, dep: &str) -> Result<Vec<PathBuf>> {
         }
         Kind::HeaderOnly => Ok(Vec::new()),
         Kind::Executable => Err(HkError::new(format!(
-            "模块 {} 依赖了可执行模块 {dep}；可执行文件不能作为链接输入，请把它改成 static-lib",
+            "module {} depends on executable module {dep}; an executable cannot be a link input — change it to static-lib",
             info.name
         ))),
     }
@@ -140,7 +141,7 @@ pub fn plan_module(ctx: &PlanCtx<'_>, name: &str) -> Result<ModulePlan> {
     let kind = info.config.kind;
     let mut plan = ModulePlan::empty(name.to_string(), kind);
     if kind == Kind::HeaderOnly {
-        crate::log_debug!("{name}: header-only 模块，跳过构建");
+        crate::log_debug!("{name}: header-only module, nothing to build");
         return Ok(plan);
     }
 
@@ -156,7 +157,7 @@ pub fn plan_module(ctx: &PlanCtx<'_>, name: &str) -> Result<ModulePlan> {
         let dep_info = ctx.project.module(dep)?;
         if dep_info.config.kind == Kind::Executable {
             return Err(HkError::new(format!(
-                "模块 {name} 依赖了可执行模块 {dep}，请把 {dep} 改为 static-lib"
+                "module {name} depends on executable module {dep}; change {dep} to static-lib"
             )));
         }
         if collect_cxx_flag(ctx, dep_info)? {
@@ -192,7 +193,7 @@ pub fn plan_module(ctx: &PlanCtx<'_>, name: &str) -> Result<ModulePlan> {
     };
     let (cflags, cxxflags) = crate::build::flags::compile(&flag_input());
 
-    // ---------- 阶段 0：编译 ----------
+    // ---------- phase 0: compile ----------
     let mut objects: Vec<PathBuf> = Vec::new();
     for unit in &units {
         objects.push(unit.obj.clone());
@@ -226,14 +227,14 @@ pub fn plan_module(ctx: &PlanCtx<'_>, name: &str) -> Result<ModulePlan> {
         let cmd = cmd.with_response_file(&unit.obj.with_extension("rsp"))?;
         plan.phases[0].push(Step {
             module: name.to_string(),
-            action: "编译",
+            action: "compile",
             cmd,
             sig_file: Some((sig_file, sig_text)),
             artifact: Some(unit.obj.clone()),
             temp_dir: None,
             kind: StepKind::Compile,
         });
-        crate::log_trace!("{name}: 编译 {} -> {}", unit.rel, unit.obj.display());
+        crate::log_trace!("{name}: compile {} -> {}", unit.rel, unit.obj.display());
     }
 
     apply_temp_env(&mut plan, 0, &temp_dir);
@@ -243,7 +244,7 @@ pub fn plan_module(ctx: &PlanCtx<'_>, name: &str) -> Result<ModulePlan> {
         return Ok(plan);
     }
 
-    // ---------- 阶段 1：打包 / 链接 ----------
+    // ---------- phase 1: archive / link ----------
     if kind == Kind::StaticLib {
         let lib = build.join("lib").join(ctx.naming.static_lib_name(&out_name));
         let sig_text = format!("ar rcs|{}|{}", lib.display(), out_name);
@@ -255,7 +256,7 @@ pub fn plan_module(ctx: &PlanCtx<'_>, name: &str) -> Result<ModulePlan> {
             cmd = cmd.with_response_file(&build.join("lib").join(format!("{out_name}.rsp")))?;
             plan.phases[1].push(Step {
                 module: name.to_string(),
-                action: "打包",
+                action: "archive",
                 cmd,
                 sig_file: Some((sig_file, sig_text)),
                 artifact: Some(lib.clone()),
@@ -268,8 +269,8 @@ pub fn plan_module(ctx: &PlanCtx<'_>, name: &str) -> Result<ModulePlan> {
         return Ok(plan);
     }
 
-    // 可执行文件 / 动态库
-    let out = output.clone().expect("链接类产物必须有输出路径");
+    // Executables and shared libraries
+    let out = output.clone().expect("a linking kind must have an output path");
     let link_input = flag_input();
     let mut cmd = Cmd::new(if plan.has_cxx { ctx.toolchain.cxx()? } else { ctx.toolchain.cc()? });
     cmd = cmd.args(crate::build::flags::link_pre(&link_input));
@@ -287,7 +288,7 @@ pub fn plan_module(ctx: &PlanCtx<'_>, name: &str) -> Result<ModulePlan> {
         let cmd = cmd.with_response_file(&rsp)?;
         plan.phases[1].push(Step {
             module: name.to_string(),
-            action: if kind == Kind::SharedLib { "链接动态库" } else { "链接" },
+            action: if kind == Kind::SharedLib { "link shared library" } else { "link" },
             cmd,
             sig_file: Some((sig_file, sig_text)),
             artifact: Some(out.clone()),
@@ -301,7 +302,7 @@ pub fn plan_module(ctx: &PlanCtx<'_>, name: &str) -> Result<ModulePlan> {
         plan.executables.push(out.clone());
     }
 
-    // ---------- 阶段 2：链接后处理 ----------
+    // ---------- phase 2: post-link ----------
     for action in post {
         if let Some(step) = post_step(ctx, name, action, &out)? {
             plan.phases[2].push(step);
@@ -312,7 +313,8 @@ pub fn plan_module(ctx: &PlanCtx<'_>, name: &str) -> Result<ModulePlan> {
     Ok(plan)
 }
 
-/// 相对路径统一解析成绝对路径，避免受 hk 调用目录影响。
+/// Resolve relative paths against a base directory so the result does not depend on
+/// the directory hk was invoked from.
 fn resolve_display(base: &Path, item: &str) -> String {
     let path = Path::new(item);
     if path.is_absolute() {
@@ -322,7 +324,8 @@ fn resolve_display(base: &Path, item: &str) -> String {
     }
 }
 
-/// -L 目录：模块配置的相对于模块目录，目标配置的相对于工程根。
+/// -L directories: module settings resolve against the module dir, target settings
+/// against the project root.
 fn resolved_lib_dirs(ctx: &PlanCtx<'_>, module_dir: &Path, view: &ConfigView<'_>) -> Vec<String> {
     let mut out: Vec<String> = view
         .deps()
@@ -334,7 +337,8 @@ fn resolved_lib_dirs(ctx: &PlanCtx<'_>, module_dir: &Path, view: &ConfigView<'_>
     out
 }
 
-/// 链接脚本：模块里的相对于模块目录，目标里的相对于工程根。
+/// Linker script: module settings resolve against the module dir, target settings
+/// against the project root.
 fn resolved_linker_script(
     ctx: &PlanCtx<'_>,
     module_dir: &Path,
@@ -350,7 +354,8 @@ fn resolved_linker_script(
         .map(|script| resolve_display(ctx.project_root, script))
 }
 
-/// 编译器用的临时目录：默认放在模块构建目录下，保证一定可写。
+/// Temp directory for the compiler: inside the module build directory by default,
+/// where writing is guaranteed to work.
 fn module_temp_dir(ctx: &PlanCtx<'_>, info: &ModInfo) -> PathBuf {
     match ctx.project.global.temp_dir.as_deref() {
         Some(configured) if !configured.trim().is_empty() => {
@@ -366,7 +371,8 @@ fn module_temp_dir(ctx: &PlanCtx<'_>, info: &ModInfo) -> PathBuf {
     }
 }
 
-/// 把某个阶段的命令统一指向临时目录（并记录目录以便执行前创建）。
+/// Point every command of one phase at the temp directory (and remember it so the
+/// directory can be created before running).
 fn apply_temp_env(plan: &mut ModulePlan, phase: usize, temp: &Path) {
     for step in plan.phases[phase].iter_mut() {
         step.cmd = step.cmd.clone().temp_env(temp);
@@ -380,7 +386,7 @@ fn collect_cxx_flag(ctx: &PlanCtx<'_>, info: &ModInfo) -> Result<bool> {
     Ok(collect_sources(ctx, info, &view, &build)?.iter().any(|u| u.kind.is_cxx()))
 }
 
-/// 汇总头文件目录与对外传播的宏/参数。
+/// Collect include directories plus the macros/flags propagated by dependencies.
 fn collect_interfaces(
     ctx: &PlanCtx<'_>,
     info: &ModInfo,
@@ -418,7 +424,7 @@ fn push_include(out: &mut Vec<PathBuf>, base: &Path, rel: &str) -> Result<()> {
     let dir = base.join(rel);
     if !dir.is_dir() {
         if rel != "include" {
-            crate::log_warn!("头文件目录不存在，已忽略: {}", dir.display());
+            crate::log_warn!("include directory does not exist, ignored: {}", dir.display());
         }
         return Ok(());
     }
@@ -451,7 +457,7 @@ fn collect_sources(
             continue;
         }
         if excludes.iter().any(|p| glob::matches(p, &rel)) {
-            crate::log_debug!("{}: 排除 {}", info.name, rel);
+            crate::log_debug!("{}: excluded {}", info.name, rel);
             continue;
         }
         let kind = match SourceKind::from_rel(&rel) {
@@ -511,7 +517,8 @@ fn merged_post(ctx: &PlanCtx<'_>, kind: Kind) -> Vec<PostAction> {
     out
 }
 
-/// 链接输入：依赖模块产物（拓扑逆序，被依赖者放最后）+ 本模块配置的静态库/动态库/目标文件。
+/// Link inputs: dependency artifacts in reverse topological order (providers last),
+/// followed by the libraries and objects configured on this module.
 fn render_link_libs(
     ctx: &PlanCtx<'_>,
     info: &ModInfo,
@@ -524,12 +531,12 @@ fn render_link_libs(
     let mut args: Vec<OsString> = Vec::new();
     let mut archives: Vec<PathBuf> = Vec::new();
 
-    // 1. 工程内模块依赖：逆拓扑序（使用者在前，被依赖者在后）
+    // 1. module dependencies: reverse topological order (users first, providers last)
     for dep in closure.iter().rev() {
         archives.extend(dep_artifacts(ctx, dep)?);
     }
 
-    // 2. 模块自己配置的额外目标文件 / 归档
+    // 2. extra objects / archives configured on the module itself
     for item in &link.extra_objects {
         archives.push(resolve_rel(&info.dir, item));
     }
@@ -539,7 +546,7 @@ fn render_link_libs(
         }
     }
 
-    // 3. 多个归档用 --start-group 兜住循环引用（GNU ld 特性）
+    // 3. with several archives, --start-group covers circular references (GNU ld)
     let group = !cfg!(target_os = "macos") && archives.len() > 1;
     if group {
         args.push(OsString::from("-Wl,--start-group"));
@@ -562,7 +569,7 @@ fn render_link_libs(
         args.push(OsString::from("-Wl,--no-whole-archive"));
     }
 
-    // 5. 动态库
+    // 5. shared libraries
     for item in &deps.shared_libs {
         if util::is_path_like(item) {
             args.push(resolve_rel(&info.dir, item).into_os_string());
@@ -571,7 +578,7 @@ fn render_link_libs(
         }
     }
 
-    // 6. 裸名静态库（可选强制静态）
+    // 6. bare static library names (optionally force-static)
     for item in &deps.static_libs {
         if util::is_path_like(item) {
             continue;
@@ -585,7 +592,7 @@ fn render_link_libs(
         }
     }
 
-    // 7. 系统库
+    // 7. system libraries
     for item in &deps.system {
         if util::is_path_like(item) {
             args.push(resolve_rel(&info.dir, item).into_os_string());
@@ -616,7 +623,7 @@ fn post_step(
         Step { module: module.to_string(), action, cmd, sig_file: None, artifact, temp_dir: None, kind }
     };
     let step = match action {
-        // .elf 就是链接产物本身（由 exe_suffix 决定）
+        // .elf: the link output itself, named through exe_suffix
         PostAction::Elf => return Ok(None),
         PostAction::Map => return Ok(None),
         PostAction::Bin => {
@@ -625,7 +632,7 @@ fn post_step(
                 return Ok(None);
             }
             let cmd = Cmd::new(ctx.toolchain.objcopy()?).args(["-O", "binary"]).arg(out).arg(&target);
-            make(cmd, Some(target), "生成 bin", StepKind::Post(PostAction::Bin))
+            make(cmd, Some(target), "objcopy (binary)", StepKind::Post(PostAction::Bin))
         }
         PostAction::Hex => {
             let target = base.with_extension("hex");
@@ -633,7 +640,7 @@ fn post_step(
                 return Ok(None);
             }
             let cmd = Cmd::new(ctx.toolchain.objcopy()?).args(["-O", "ihex"]).arg(out).arg(&target);
-            make(cmd, Some(target), "生成 hex", StepKind::Post(PostAction::Hex))
+            make(cmd, Some(target), "objcopy (ihex)", StepKind::Post(PostAction::Hex))
         }
         PostAction::Lst => {
             let target = base.with_extension("lst");
@@ -641,7 +648,7 @@ fn post_step(
                 return Ok(None);
             }
             let cmd = Cmd::new(ctx.toolchain.objdump()?).arg("-d").arg(out);
-            make(cmd, Some(target), "反汇编", StepKind::Post(PostAction::Lst))
+            make(cmd, Some(target), "objdump", StepKind::Post(PostAction::Lst))
         }
         PostAction::Size => {
             let cmd = Cmd::new(ctx.toolchain.size()?).arg(out);
@@ -658,7 +665,8 @@ fn is_fresh(artifact: &Path, input: &Path) -> bool {
     }
 }
 
-/// 增量判断：产物存在、命令行签名未变、所有输入都不比产物新。
+/// Incremental check: the output exists, the command signature is unchanged and no
+/// input is newer than the output.
 pub fn up_to_date(
     out: &Path,
     sig_file: &Path,
@@ -683,7 +691,7 @@ pub fn up_to_date(
     if let Some(depfile) = depfile {
         for dep in read_depfile(depfile) {
             match util::mtime(&dep) {
-                // 依赖的头部被删除时也重编，交给编译器报出真实错误
+                // A removed header also forces a rebuild, letting the compiler report it
                 Some(time) if time <= out_time => {}
                 _ => return false,
             }
@@ -692,7 +700,7 @@ pub fn up_to_date(
     true
 }
 
-/// 解析 gcc -MMD 生成的依赖文件。
+/// Parse a dependency file produced by gcc -MMD.
 pub fn read_depfile(path: &Path) -> Vec<PathBuf> {
     let text = match std::fs::read_to_string(path) {
         Ok(text) => text,
@@ -791,9 +799,9 @@ mod tests {
         let plan = plan_module(&c, "app").unwrap();
         let link = plan.phases[1].iter().find(|s| matches!(s.kind, StepKind::Link { .. })).unwrap();
         let args: Vec<String> = link.cmd.args.iter().map(|a| a.to_string_lossy().to_string()).collect();
-        let drv = args.iter().position(|a| a.ends_with("libdrv.a")).expect("应链接 libdrv.a");
-        let hal = args.iter().position(|a| a.ends_with("libhal.a")).expect("应链接 libhal.a");
-        assert!(drv < hal, "被依赖者应排在后面: {args:?}");
+        let drv = args.iter().position(|a| a.ends_with("libdrv.a")).expect("libdrv.a must be linked");
+        let hal = args.iter().position(|a| a.ends_with("libhal.a")).expect("libhal.a must be linked");
+        assert!(drv < hal, "providers must come after their users: {args:?}");
         assert!(args.iter().any(|a| a == "-Wl,--start-group"));
     }
 
@@ -816,8 +824,8 @@ mod tests {
         let module_dir = util::normalize(&root.join("fw")).unwrap();
         assert_eq!(plan.artifacts[0], module_dir.join("build").join("bin").join("fw.elf"));
         let actions: Vec<String> = plan.phases[2].iter().map(|s| s.action.to_string()).collect();
-        assert!(actions.contains(&"生成 bin".to_string()), "{actions:?}");
-        assert!(actions.contains(&"生成 hex".to_string()), "{actions:?}");
+        assert!(actions.contains(&"objcopy (binary)".to_string()), "{actions:?}");
+        assert!(actions.contains(&"objcopy (ihex)".to_string()), "{actions:?}");
         assert!(actions.contains(&"size".to_string()), "{actions:?}");
         let compile = &plan.phases[0][0];
         let args: Vec<String> = compile.cmd.args.iter().map(|a| a.to_string_lossy().to_string()).collect();

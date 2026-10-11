@@ -11,6 +11,16 @@ cd blinky && hk build  # 编译
 hk run                 # 编译并运行
 ```
 
+> **English summary** — HuiMake (hk) is a YAML-driven C/C++ build tool, an alternative to
+> CMake/Makefile. A directory is a *module*; modules declare their dependencies in `config.yaml`,
+> and hk resolves the order, compiles in parallel and links them. Everything about compilers —
+> toolchains, cross-compilation targets, optimisation profiles — lives in `hk.yaml`, never in the
+> code. It rebuilds incrementally (gcc `-MMD` dependency files + command signatures), supports
+> cross compilation and MCU workflows (nano/nosys specs, `--gc-sections`, linker scripts,
+> `objcopy` to bin/hex, Flash/RAM usage reports), and ships four runnable example projects plus
+> unit, end-to-end and example tests driven by two helper scripts. The command line, the log output
+> and all error messages are in English; this document is in Chinese with the summary above.
+
 ## 特性
 
 | 能力 | 说明 |
@@ -45,6 +55,12 @@ cargo build --release
 构建相关参数：`-m/--mode`（配置档）、`-t/--target`（目标）、`-j/--jobs`（并行度，0=自动）、
 `--module`（只构建该模块及其依赖）、`--print-plan`（只打印命令，不执行）、`--force`（全量重建）、
 `-k/--keep-going`（出错后继续构建独立模块）、`-v/-vv`（详细日志）。
+
+输出与日志（全部为英文）：
+- debug 方式构建出来的 hk 默认 INFO：打印每个模块的编译/链接进度；
+- **release 方式构建出来的 hk（`cargo build --release`）默认 WARN：只打印警告、错误与最终汇总**，
+  发行版不会刷屏；
+- `-v` 打开逐条进度并打印真正执行的命令行，`-vv` 打印全部细节，`-q` 只留错误。
 
 ## 目录结构
 
@@ -145,11 +161,11 @@ app/build/bin/app.map     # 链接 map
 并且打印占用报告（来自 `-Wl,--print-memory-usage`）：
 
 ```
-==> app: 链接 → .../app.elf
-app 内存占用:
+==> app: link -> .../app.elf
+app memory usage:
      FLASH       12288 B / 512 KB  (2.34%)
        RAM        3200 B / 128 KB  (2.44%)
-app 段大小 (text / data / bss / dec / hex):
+app section sizes (text/data/bss/dec/hex):
    text    data     bss     dec     hex filename
    1024     256     512    1792     700 app.elf
 ```

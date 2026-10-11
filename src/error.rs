@@ -1,4 +1,5 @@
-//! 统一错误类型：带上下文链，出错时能直接看出"哪个模块 / 哪个阶段 / 哪条命令"。
+//! Unified error type with a context chain, so a failure shows which module,
+//! which stage and which command went wrong.
 
 use std::fmt;
 use std::path::Path;
@@ -24,23 +25,25 @@ impl HkError {
         HkError { message: message.into(), context: Vec::new(), source: Some(Box::new(source)) }
     }
 
+    /// Build an error for a failed file system operation.
     pub fn io(action: &str, path: &Path, err: std::io::Error) -> Self {
-        HkError::with_source(format!("{action} {} 失败", path.display()), err)
+        HkError::with_source(format!("{action} failed: {}", path.display()), err)
     }
 
-    /// 命令执行失败：附带完整命令行、退出码与 stderr 尾部。
+    /// Build an error for a failed command: keeps the full command line, the
+    /// exit code and the tail of stderr.
     pub fn command(cmd: &str, code: Option<i32>, stderr: &str) -> Self {
         let tail = stderr.trim();
-        let detail = if tail.is_empty() { "（无错误输出）".to_string() } else { tail.to_string() };
+        let detail = if tail.is_empty() { "(no error output)".to_string() } else { tail.to_string() };
         let mut e = HkError::new(match code {
-            Some(c) => format!("命令执行失败（exit code {c}）:\n  {cmd}\n{detail}"),
-            None => format!("命令被信号终止:\n  {cmd}\n{detail}"),
+            Some(c) => format!("command failed (exit code {c}):\n  {cmd}\n{detail}"),
+            None => format!("command terminated by a signal:\n  {cmd}\n{detail}"),
         });
-        e.context.push("构建命令".to_string());
+        e.context.push("build command".to_string());
         e
     }
 
-    /// 追加上下文；显示时最外层在前。
+    /// Add context. The outermost context is displayed first.
     pub fn context(mut self, ctx: impl Into<String>) -> Self {
         self.context.push(ctx.into());
         self
@@ -49,11 +52,11 @@ impl HkError {
 
 impl fmt::Display for HkError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // 最外层上下文在最上面，根本原因在最后，便于顺着日志定位。
+        // Outermost context first, root cause last.
         let mut lines: Vec<String> = self.context.iter().rev().cloned().collect();
         lines.push(self.message.clone());
         if let Some(source) = &self.source {
-            lines.push(format!("原因: {source}"));
+            lines.push(format!("caused by: {source}"));
         }
         write!(f, "{}", lines.join("\n  · "))
     }
@@ -79,17 +82,17 @@ impl From<&str> for HkError {
 
 impl From<std::io::Error> for HkError {
     fn from(e: std::io::Error) -> Self {
-        HkError::with_source("IO 错误", e)
+        HkError::with_source("I/O error", e)
     }
 }
 
 impl From<serde_yaml::Error> for HkError {
     fn from(e: serde_yaml::Error) -> Self {
-        HkError::with_source("YAML 解析失败", e)
+        HkError::with_source("YAML parse error", e)
     }
 }
 
-/// 给 Result 追加上下文，链式书写。
+/// Attach context to any Result.
 pub trait ResultExt<T> {
     fn with_context<F: FnOnce() -> String>(self, f: F) -> Result<T>;
 }
@@ -120,21 +123,21 @@ mod tests {
 
     #[test]
     fn context_chain_is_displayed_outermost_first() {
-        let r: Result<()> = Err(HkError::new("内层"))
-            .with_context(|| "中层".to_string())
-            .with_context(|| "外层".to_string());
+        let r: Result<()> = Err(HkError::new("inner"))
+            .with_context(|| "middle".to_string())
+            .with_context(|| "outer".to_string());
         let msg = r.unwrap_err().to_string();
-        let outer = msg.find("外层").unwrap();
-        let middle = msg.find("中层").unwrap();
-        let inner = msg.find("内层").unwrap();
-        assert!(outer < middle && middle < inner, "上下文链顺序错误: {msg}");
+        let outer = msg.find("outer").unwrap();
+        let middle = msg.find("middle").unwrap();
+        let inner = msg.find("inner").unwrap();
+        assert!(outer < middle && middle < inner, "wrong context order: {msg}");
     }
 
     #[test]
     fn io_error_keeps_source() {
         use std::error::Error;
         let e = HkError::io(
-            "读取",
+            "read",
             Path::new("/tmp/x"),
             std::io::Error::new(std::io::ErrorKind::NotFound, "no file"),
         );

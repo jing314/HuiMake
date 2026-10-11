@@ -1,7 +1,9 @@
-//! 工程发现：定位工程根、加载模块、解析依赖、拓扑排序。
+//! Project discovery: locate the project root, load modules, resolve dependencies
+//! and compute a topological order.
 //!
-//! 依赖模型：config.yaml 的 deps.mods 写模块名（或模块目录名 / 相对路径），
-//! 模块之间是同级目录关系，解析失败直接报错（不再静默忽略）。
+//! Dependency model: deps.mods in config.yaml holds a module name (or a directory
+//! name, or a relative path). Modules are sibling directories and an unresolved
+//! dependency is a hard error, never silently ignored.
 
 use crate::config::{Config, GlobalConfig, MODULE_FILE_NAME};
 use crate::error::{HkError, Result, ResultExt};
@@ -11,16 +13,16 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// 扫描模块时的最大目录深度。
+/// Maximum directory depth when scanning for modules.
 const MAX_SCAN_DEPTH: usize = 6;
 
-/// 扫描时永远跳过的目录名。
+/// Directory names that are never descended into.
 const SKIP_DIRS: [&str; 5] = ["node_modules", "target", ".git", ".svn", ".hg"];
 
 #[derive(Debug, Clone)]
 pub struct ModInfo {
     pub name: String,
-    /// 模块目录绝对路径（已归一化）。
+    /// Absolute (normalized) module directory.
     pub dir: PathBuf,
     pub config: Config,
 }
@@ -33,13 +35,13 @@ pub struct Project {
     pub global_file: Option<PathBuf>,
     pub global: GlobalConfig,
     pub modules: IndexMap<String, ModInfo>,
-    /// 在模块目录下运行命令时，指向该模块。
+    /// Set when hk runs inside a module directory.
     pub current: Option<String>,
 }
 
 impl Project {
     pub fn discover(cwd: &Path) -> Result<Project> {
-        let cwd = util::normalize(cwd).with_context(|| format!("解析当前目录 {}", cwd.display()))?;
+        let cwd = util::normalize(cwd).with_context(|| format!("resolving the current directory {}", cwd.display()))?;
         let mod_dir = if cwd.join(MODULE_FILE_NAME).is_file() { Some(cwd.clone()) } else { None };
         let global_root = GlobalConfig::find_root(&cwd);
         let root = match (&global_root, &mod_dir) {
@@ -58,8 +60,7 @@ impl Project {
         }
         if dirs.is_empty() {
             return Err(HkError::new(format!(
-                "{} 下没有找到任何模块（模块目录需要有 {}）；\
-                 若在工程根目录运行，请先创建模块或指定 --project",
+                "no modules found under {} (a module directory must contain {})",
                 root.display(),
                 MODULE_FILE_NAME
             )));
@@ -77,21 +78,21 @@ impl Project {
             let abs = util::normalize(&dir)?;
             if let Some(prev) = by_dir.get(&abs) {
                 return Err(HkError::new(format!(
-                    "模块目录 {} 被重复加载（模块 {prev} 与 {name}）",
+                    "module directory {} loaded twice (modules {prev} and {name})",
                     abs.display()
                 )));
             }
             if let Some(existing) = modules.get(&name) {
                 return Err(HkError::new(format!(
-                    "模块重名 {name:?}：\n     {}\n     {}",
+                    "duplicate module name {name:?}:\n     {}\n     {}",
                     existing.dir.display(),
                     abs.display()
                 ))
                 .context(
-                    "若这两个模块属于不同工程，说明你在多个工程的上层目录运行：\
-                     请进入具体工程目录，或用 --module <模块名> 选择模块",
+                    "if these modules belong to different projects you are running in a parent\
+                     directory: cd into the project, or select one with --module NAME",
                 )
-                .context("若它们确实属于同一工程，请在各自的 config.yaml 中显式设置不同的 name"));
+                .context("if they do belong to the same project, give them different explicit names in their config.yaml"));
             }
             by_dir.insert(abs.clone(), name.clone());
             modules.insert(name.clone(), ModInfo { name, dir: abs, config });
@@ -119,25 +120,25 @@ impl Project {
     pub fn module(&self, name: &str) -> Result<&ModInfo> {
         self.modules
             .get(name)
-            .ok_or_else(|| HkError::new(format!("未知模块 {name:?}，可用模块: {}", self.module_names())))
+            .ok_or_else(|| HkError::new(format!("unknown module {name:?}; available: {}", self.module_names())))
     }
 
     pub fn module_names(&self) -> String {
         self.modules.keys().cloned().collect::<Vec<_>>().join(", ")
     }
 
-    /// 校验所有依赖都能解析，且不存在循环依赖。
+    /// Every dependency must resolve and the graph must be acyclic.
     fn check_deps(&self) -> Result<()> {
         for (name, module) in &self.modules {
             for dep in &module.config.deps.mods {
                 let resolved = self.resolve_dep(name, dep).map_err(|e| {
                     e.context(format!(
-                        "模块 {name}（{}）的 deps.mods 中的 {dep:?}",
+                        "the deps.mods entry {dep:?} of module {name} ({})",
                         module.dir.display()
                     ))
                 })?;
                 if resolved == *name {
-                    return Err(HkError::new(format!("模块 {name} 依赖了自己")));
+                    return Err(HkError::new(format!("module {name} depends on itself")));
                 }
             }
         }
@@ -145,7 +146,8 @@ impl Project {
         Ok(())
     }
 
-    /// 把依赖写法解析成模块名：支持模块名 / 目录名 / 相对路径。
+    /// Resolve a dependency entry to a module name: accepts a module name, a
+    /// directory name or a relative path.
     pub fn resolve_dep(&self, from: &str, dep: &str) -> Result<String> {
         if self.modules.contains_key(dep) {
             return Ok(dep.to_string());
@@ -169,12 +171,12 @@ impl Project {
             }
         }
         Err(HkError::new(format!(
-            "无法解析依赖 {dep:?}（按模块名、目录名、相对路径都没找到）；当前工程模块: {}",
+            "cannot resolve dependency {dep:?} (tried module name, directory name and relative path); modules in this project: {}",
             self.module_names()
         )))
     }
 
-    /// 依赖闭包（依赖在前，拓扑序，不含自身）。
+    /// Transitive dependencies in topological order (dependencies first, self excluded).
     pub fn dep_closure(&self, name: &str) -> Result<Vec<String>> {
         let mut seen = HashSet::new();
         let mut visiting = Vec::new();
@@ -197,7 +199,7 @@ impl Project {
         if visiting.iter().any(|v| v == name) {
             let mut chain = visiting.clone();
             chain.push(name.to_string());
-            return Err(HkError::new(format!("检测到循环依赖: {}", chain.join(" -> "))));
+            return Err(HkError::new(format!("dependency cycle detected: {}", chain.join(" -> "))));
         }
         visiting.push(name.to_string());
         let module = self.module(name)?;
@@ -211,7 +213,7 @@ impl Project {
         Ok(())
     }
 
-    /// 全工程按依赖分层的拓扑序（同层可并行）。
+    /// Topological levels of the whole project; modules in one level can build in parallel.
     pub fn topo_levels(&self) -> Result<Vec<Vec<String>>> {
         let mut indegree: HashMap<String, usize> =
             self.modules.keys().map(|k| (k.clone(), 0)).collect();
@@ -251,14 +253,14 @@ impl Project {
 
         if !remaining.is_empty() {
             return Err(HkError::new(format!(
-                "检测到循环依赖，涉及模块: {}",
+                "dependency cycle detected, involving: {}",
                 remaining.join(", ")
             )));
         }
         Ok(levels)
     }
 
-    /// 按拓扑序拍平（用于 --print-plan 与 run 的执行顺序）。
+    /// Flattened topological order (used by --print-plan and by run).
     pub fn topo_order(&self, scope: Option<&str>) -> Result<Vec<String>> {
         let keep: Option<HashSet<String>> = match scope {
             Some(name) => {
@@ -307,10 +309,11 @@ fn find_module_dirs(root: &Path, build_dir: &str) -> Result<Vec<PathBuf>> {
             if name == build_dir || name.starts_with('.') || SKIP_DIRS.contains(&name.as_str()) {
                 continue;
             }
-            // 子目录自带工程配置 => 它属于另一个工程，作为边界不再深入，
-            // 否则多个子工程的模块会被混成一个工程（很容易撞名）。
+            // A child directory that carries its own project config belongs to another
+            // project and acts as a scan boundary; otherwise modules of several projects
+            // would be merged into one and easily collide by name.
             if GlobalConfig::find_file(&path).is_some() {
-                crate::log_info!("跳过子工程 {}（它有自己的工程配置）", path.display());
+                crate::log_info!("skipping nested project {} (it has its own project config)", path.display());
                 continue;
             }
             queue.push_back((path, depth + 1));
@@ -347,7 +350,7 @@ mod tests {
         let project = Project::discover(&root).unwrap();
         assert_eq!(project.modules.len(), 3);
         let levels = project.topo_levels().unwrap();
-        assert_eq!(levels[0].len(), 2, "无依赖的模块应在第一层: {levels:?}");
+        assert_eq!(levels[0].len(), 2, "modules without dependencies belong to the first level: {levels:?}");
         assert_eq!(levels[1], vec!["app".to_string()]);
         assert_eq!(project.dep_closure("app").unwrap(), vec!["hal".to_string()]);
     }
@@ -358,7 +361,7 @@ mod tests {
         write(&root.join("a/config.yaml"), "name: same\n");
         write(&root.join("b/config.yaml"), "name: same\n");
         let err = Project::discover(&root).unwrap_err().to_string();
-        assert!(err.contains("重名"), "{err}");
+        assert!(err.contains("duplicate module name"), "{err}");
     }
 
     #[test]
@@ -375,29 +378,29 @@ mod tests {
         write(&root.join("a/config.yaml"), "name: a\ndeps:\n  mods: [b]\n");
         write(&root.join("b/config.yaml"), "name: b\ndeps:\n  mods: [a]\n");
         let err = Project::discover(&root).unwrap_err().to_string();
-        assert!(err.contains("循环依赖"), "{err}");
+        assert!(err.contains("cycle"), "{err}");
     }
 
     #[test]
     fn nested_project_roots_act_as_scan_boundaries() {
         let root = temp_project("nested");
-        // 上层目录里的一个普通模块
+        // an ordinary module in the parent directory
         write(&root.join("top/config.yaml"), "name: top\n");
-        // 两个子工程：各自带 hk.yaml，且都有一个叫 bsp 的模块
+        // two nested projects: both carry hk.yaml and both have a module named bsp
         write(&root.join("alpha/hk.yaml"), "version: 1\n");
         write(&root.join("alpha/bsp/config.yaml"), "name: bsp\n");
         write(&root.join("beta/hk.yaml"), "version: 1\n");
         write(&root.join("beta/bsp/config.yaml"), "name: bsp\n");
 
-        // 在上层目录运行：只看到 upper 层自己的模块，不会把子工程混进来
+        // running in the parent directory only sees the parent's own modules
         let project = Project::discover(&root).unwrap();
         assert_eq!(
             project.modules.keys().cloned().collect::<Vec<_>>(),
             vec!["top".to_string()],
-            "子工程应作为扫描边界被跳过"
+            "nested projects must act as scan boundaries"
         );
 
-        // 进入子工程后只看到它自己的模块
+        // inside a nested project only its own modules are visible
         let alpha = Project::discover(&root.join("alpha")).unwrap();
         assert_eq!(alpha.modules.keys().cloned().collect::<Vec<_>>(), vec!["bsp".to_string()]);
         assert_eq!(alpha.root, util::normalize(&root.join("alpha")).unwrap());
@@ -409,8 +412,8 @@ mod tests {
         write(&root.join("a/config.yaml"), "name: same\n");
         write(&root.join("b/config.yaml"), "name: same\n");
         let msg = Project::discover(&root).unwrap_err().to_string();
-        assert!(msg.contains("重名"), "{msg}");
-        assert!(msg.contains("上层目录"), "应提示可能是运行目录不对: {msg}");
+        assert!(msg.contains("duplicate module name"), "{msg}");
+        assert!(msg.contains("parent"), "the error should hint at the wrong directory: {msg}");
     }
 
     #[test]

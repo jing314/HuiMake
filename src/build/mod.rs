@@ -1,4 +1,5 @@
-//! 构建编排：解析配置 → 生成计划 → 分层并行执行 → 汇总报告。
+//! Build orchestration: resolve the config, plan, execute level by level in parallel,
+//! then report.
 
 pub mod flags;
 pub mod steps;
@@ -16,25 +17,25 @@ use steps::{ModulePlan, PlanCtx, Step, StepKind};
 
 #[derive(Debug, Clone, Default)]
 pub struct BuildOptions {
-    /// 配置档（profiles 名）。
+    /// Build mode (a profile name).
     pub mode: Option<String>,
-    /// 目标（targets 名）。
+    /// Target name.
     pub target: Option<String>,
-    /// 并行任务数；0 或 None 表示自动。
+    /// Parallel jobs; 0 or None means auto.
     pub jobs: Option<usize>,
-    /// 只打印将执行的命令，不真正执行。
+    /// Print the commands instead of running them.
     pub print_plan: bool,
-    /// 忽略增量，全量重建。
+    /// Ignore incremental state and rebuild everything.
     pub force: bool,
-    /// 出错后继续构建彼此独立的模块。
+    /// Keep building independent modules after a failure.
     pub keep_going: bool,
-    /// 只构建该模块及其依赖。
+    /// Only build this module and its dependencies.
     pub scope: Option<String>,
-    /// 计划输出文件（--print-plan --output）。
+    /// Plan output file (--print-plan --output).
     pub plan_output: Option<PathBuf>,
-    /// hk run 传给目标程序的参数。
+    /// Arguments `hk run` passes to the program.
     pub run_args: Vec<String>,
-    /// hk run 只运行指定的模块/可执行文件。
+    /// `hk run` only runs this module/executable.
     pub run_bin: Option<String>,
 }
 
@@ -106,7 +107,7 @@ fn plan_all(project: &Project, settings: &Settings<'_>, opts: &BuildOptions, ord
     };
     order
         .iter()
-        .map(|name| steps::plan_module(&ctx, name).map_err(|e| e.context(format!("规划模块 {name}"))))
+        .map(|name| steps::plan_module(&ctx, name).map_err(|e| e.context(format!("planning module {name}"))))
         .collect()
 }
 
@@ -115,7 +116,7 @@ pub fn build(project: &Project, opts: &BuildOptions) -> Result<BuildReport> {
     let settings = resolve(project, opts)?;
     let order = project.topo_order(opts.scope.as_deref())?;
     if order.is_empty() {
-        crate::hk_bail!("没有需要构建的模块");
+        crate::hk_bail!("there is nothing to build");
     }
     let plans = plan_all(project, &settings, opts, &order)?;
 
@@ -146,14 +147,16 @@ pub fn build(project: &Project, opts: &BuildOptions) -> Result<BuildReport> {
             }
             for idx in &level_paths {
                 if let Some(header) = phase_header(&plans[*idx], phase) {
-                    crate::log_plain!("==> {header}");
+                    // Progress lines are INFO: a release build of hk (default level WARN)
+                    // prints only warnings/errors and the final summary. Use -v to see them.
+                    crate::log_info!("==> {header}");
                 }
             }
             executed += batch.len();
             run_parallel(settings.jobs, &batch, !opts.keep_going, |step: &&Step| execute_step(step))
                 .map_err(|e| {
                     e.context(format!(
-                        "构建失败（目标 {} / 模式 {}）",
+                        "build failed (target {} / mode {})",
                         settings.target_name, settings.mode
                     ))
                 })?;
@@ -163,14 +166,14 @@ pub fn build(project: &Project, opts: &BuildOptions) -> Result<BuildReport> {
     let (up_to_date, artifacts) = summarize(&plans);
     let elapsed = started.elapsed();
     crate::log_plain!(
-        "构建完成: {} 个模块，执行 {} 个步骤，{} 个模块无需重建，用时 {:.2}s",
+        "Build finished: {} module(s), {} step(s) executed, {} up to date, {:.2}s",
         plans.len(),
         executed,
         up_to_date,
         elapsed.as_secs_f64()
     );
     if !artifacts.is_empty() {
-        crate::log_plain!("产物:");
+        crate::log_plain!("Artifacts:");
         for artifact in artifacts {
             crate::log_plain!("  {}", util::short_path(&artifact));
         }
@@ -197,9 +200,9 @@ fn phase_header(plan: &ModulePlan, phase: usize) -> Option<String> {
         return None;
     }
     Some(match phase {
-        0 => format!("{}: 编译 {} 个源文件", plan.module, steps.len()),
-        1 => format!("{}: {} → {}", plan.module, steps[0].action, step_target(&steps[0])),
-        _ => format!("{}: {} 项后处理（{}）", plan.module, steps.len(), steps.iter().map(|s| s.action).collect::<Vec<_>>().join(" / ")),
+        0 => format!("{}: compiling {} file(s)", plan.module, steps.len()),
+        1 => format!("{}: {} -> {}", plan.module, steps[0].action, step_target(&steps[0])),
+        _ => format!("{}: {} post-link step(s) ({})", plan.module, steps.len(), steps.iter().map(|s| s.action).collect::<Vec<_>>().join(" / ")),
     })
 }
 
@@ -217,27 +220,27 @@ fn step_target(step: &Step) -> String {
 fn execute_step(step: &Step) -> Result<()> {
     let what = format!("{} {}", step.module, step.action);
     crate::log_debug!("[{}] {}", step.action, step.cmd.display());
-    // 产物目录按需创建（obj / lib / bin）
+    // Create artifact directories on demand (obj / lib / bin)
     if let Some(artifact) = &step.artifact {
         if let Some(parent) = artifact.parent() {
             util::ensure_dir(parent)?;
         }
     }
-    // 编译器临时目录按需创建
+    // Create the compiler temp directory on demand
     if let Some(temp) = &step.temp_dir {
         util::ensure_dir(temp)?;
     }
     match &step.kind {
         StepKind::Size => {
             let out = step.cmd.run_checked(&what)?;
-            crate::log_plain!("{} 段大小 (text / data / bss / dec / hex):", step.module);
+            crate::log_plain!("{} section sizes (text/data/bss/dec/hex):", step.module);
             crate::log_plain!("{}", out.stdout.trim_end());
         }
         StepKind::Post(PostAction::Lst) => {
             let out = step.cmd.run_checked(&what)?;
             if let Some(artifact) = &step.artifact {
                 util::write_if_changed(artifact, &out.stdout)?;
-                crate::log_debug!("{}: 反汇编写入 {}", step.module, artifact.display());
+                crate::log_debug!("{}: disassembly written to {}", step.module, artifact.display());
             }
         }
         StepKind::Link { memory_usage } => {
@@ -246,9 +249,9 @@ fn execute_step(step: &Step) -> Result<()> {
             if *memory_usage {
                 let rows = parse_memory_usage(&out.stderr);
                 if !rows.is_empty() {
-                    crate::log_plain!("{} 内存占用:", step.module);
+                    crate::log_plain!("{} memory usage:", step.module);
                     for row in &rows {
-                        let warn = if row.oversized() { "  <== 超出容量!" } else { "" };
+                        let warn = if row.oversized() { "  <== over capacity!" } else { "" };
                         crate::log_plain!("  {}{}", row.render(), warn);
                     }
                     remaining = strip_memory_lines(&out.stderr);
@@ -274,7 +277,7 @@ fn report_warnings(stderr: &str) {
     }
 }
 
-/// 去掉 --print-memory-usage 的表格行，剩下的才是编译器诊断。
+/// Drop the --print-memory-usage table; whatever remains is a compiler diagnostic.
 fn strip_memory_lines(stderr: &str) -> String {
     stderr
         .lines()
@@ -303,9 +306,9 @@ pub fn print_plan(project: &Project, settings: &Settings<'_>, opts: &BuildOption
         project.global.build_dir
     ));
     for plan in plans {
-        lines.push(format!("# 模块 {} [{}]", plan.module, plan.kind.as_str()));
+        lines.push(format!("# module {} [{}]", plan.module, plan.kind.as_str()));
         if plan.is_up_to_date() {
-            lines.push("    # 已是最新，跳过".to_string());
+            lines.push("    # up to date, skipped".to_string());
             continue;
         }
         for phase in &plan.phases {
@@ -319,12 +322,13 @@ pub fn print_plan(project: &Project, settings: &Settings<'_>, opts: &BuildOption
     }
     if let Some(path) = &opts.plan_output {
         util::write_plan(path, &lines)?;
-        crate::log_info!("计划已写入 {}", path.display());
+        crate::log_info!("plan written to {}", path.display());
     }
     Ok(())
 }
 
-/// 并行执行；stop_on_error 为 false 时尽量跑完其余独立任务。
+/// Run in parallel; with stop_on_error = false the remaining independent work is
+/// still attempted.
 pub fn run_parallel<T, F>(jobs: usize, items: &[T], stop_on_error: bool, f: F) -> Result<()>
 where
     T: Sync,
@@ -394,7 +398,7 @@ impl MemoryRow {
     }
 }
 
-/// 解析 gcc -Wl,--print-memory-usage 的输出。
+/// Parse the output of gcc -Wl,--print-memory-usage.
 pub fn parse_memory_usage(stderr: &str) -> Vec<MemoryRow> {
     let mut rows = Vec::new();
     for line in stderr.lines() {

@@ -1,4 +1,5 @@
-/* 最小启动文件示范：真实项目请直接用 SDK 的 startup_stm32f407xx.s（含完整向量表） */
+/* Minimal startup file for demonstration; real projects should use the SDK's
+   startup_stm32f407xx.s with the full vector table */
   .syntax unified
   .cpu cortex-m4
   .fpu softvfp

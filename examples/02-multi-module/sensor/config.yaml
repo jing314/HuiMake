@@ -1,4 +1,4 @@
-# 依赖 core 的静态库；core 的宏 CORE_VERSION 会被传播过来
+# A static library depending on core; core's CORE_VERSION macro is propagated here
 name: sensor
 kind: static-lib
 std: c11

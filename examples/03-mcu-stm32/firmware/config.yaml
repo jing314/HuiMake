@@ -2,7 +2,7 @@ name: firmware
 kind: executable
 std: c11
 
-# 除了 src/ 还要编译启动文件（默认 glob 不包含 startup/）
+# Besides src/, the startup file has to be compiled (the default globs exclude startup/)
 sources:
   - src/**/*.c
   - startup/**/*.s

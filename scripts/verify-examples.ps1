@@ -1,18 +1,18 @@
 <#
 .SYNOPSIS
-    逐个验证 examples/ 下的示范工程，并打印 PASS/FAIL 汇总表。
+    Verify every example project under examples/ and print a PASS/FAIL table.
 
 .DESCRIPTION
-    01-single-module / 02-multi-module：真实编译并运行（需要本机有 gcc）
-    03-mcu-stm32   / 04-mcu-gd32    ：执行 --print-plan 并检查关键交叉编译参数（不需要交叉工具链）
+    01-single-module / 02-multi-module : really compile and run (needs gcc on this host)
+    03-mcu-stm32   / 04-mcu-gd32    : run --print-plan and check the key cross flags (no toolchain needed)
 
-    每个示例都会先复制到临时目录再构建，因此不会污染 examples/。
+    Every example is copied to a temp directory first, so examples/ stays clean.
 
 .PARAMETER Hk
-    hk 可执行文件路径；默认使用 target/debug/hk，不存在时会先 cargo build。
+    Path to the hk binary; defaults to target/debug/hk, building it with cargo if needed.
 
 .PARAMETER Keep
-    保留临时构建目录，便于排查失败原因。
+    Keep the temporary build directories for troubleshooting.
 
 .EXAMPLE
     pwsh -File scripts/verify-examples.ps1
@@ -29,17 +29,17 @@ $examples = Join-Path $root "examples"
 
 function Resolve-Hk {
     if ($Hk -ne "") {
-        if (-not (Test-Path -LiteralPath $Hk)) { throw "指定的 hk 不存在: $Hk" }
+        if (-not (Test-Path -LiteralPath $Hk)) { throw "the given hk does not exist: $Hk" }
         return (Resolve-Path -LiteralPath $Hk).Path
     }
     $name = if ($env:OS -eq "Windows_NT") { "hk.exe" } else { "hk" }
     $candidate = Join-Path $root (Join-Path "target/debug" $name)
     if (Test-Path -LiteralPath $candidate) { return $candidate }
-    Write-Host "未找到 hk，先执行 cargo build ..." -ForegroundColor Yellow
+    Write-Host "hk not found, running cargo build ..." -ForegroundColor Yellow
     Push-Location $root
     & cargo build
     Pop-Location
-    if (-not (Test-Path -LiteralPath $candidate)) { throw "构建后仍未找到 $candidate" }
+    if (-not (Test-Path -LiteralPath $candidate)) { throw "still not found after building: $candidate" }
     return $candidate
 }
 
@@ -49,7 +49,7 @@ $checks = @(
         WorkDir = "01-single-module/hello"
         Mode = "run"
         Args = @("build")
-        Expect = @("构建完成")
+        Expect = @("Build finished")
         RunExe = @("build/bin/hello.exe", "build/bin/hello")
         RunExpect = "HELLO FROM HK"
     },
@@ -114,14 +114,14 @@ $checks = @(
 $hk = Resolve-Hk
 $hasGcc = [bool](Get-Command gcc -ErrorAction SilentlyContinue)
 Write-Host "hk  : $hk"
-Write-Host "gcc : $(if ($hasGcc) { '已找到' } else { '未找到（本机示例会被跳过）' })"
+Write-Host "gcc : $(if ($hasGcc) { 'found' } else { 'not found (host examples will be skipped)' })"
 Write-Host ""
 
 $results = @()
 
 foreach ($check in $checks) {
     if ($check.Mode -eq "run" -and -not $hasGcc) {
-        $results += [pscustomobject]@{ 示例 = $check.Name; 模式 = $check.Mode; 结果 = "SKIP"; 说明 = "本机没有 gcc" }
+        $results += [pscustomobject]@{ Example = $check.Name; Mode = $check.Mode; Result = "SKIP"; Note = "gcc is not available" }
         continue
     }
 
@@ -140,11 +140,11 @@ foreach ($check in $checks) {
         Pop-Location
 
         if ($code -ne 0) {
-            $note = "构建失败，退出码 $code"
+            $note = "build failed with exit code $code"
         } else {
             $missing = @($check.Expect | Where-Object { $output -notmatch [regex]::Escape($_) })
             if ($missing.Count -gt 0) {
-                $note = "缺少标记: " + ($missing -join ", ")
+                $note = "missing markers: " + ($missing -join ", ")
             } elseif ($check.RunExpect -ne "") {
                 $exe = $null
                 foreach ($rel in $check.RunExe) {
@@ -152,24 +152,24 @@ foreach ($check in $checks) {
                     if (Test-Path -LiteralPath $candidate) { $exe = $candidate; break }
                 }
                 if ($null -eq $exe) {
-                    $note = "没有找到可执行产物"
+                    $note = "no executable artifact found"
                 } else {
                     $programOutput = & $exe 2>&1 | Out-String
                     if ($programOutput -match [regex]::Escape($check.RunExpect)) {
                         $ok = $true
-                        $note = "构建 + 运行通过"
+                        $note = "built and ran successfully"
                     } else {
-                        $note = "运行输出不符: " + $programOutput.Trim()
+                        $note = "unexpected program output: " + $programOutput.Trim()
                     }
                 }
             } else {
                 $ok = $true
-                $note = ($check.Expect.Count.ToString() + " 项参数检查通过")
+                $note = ($check.Expect.Count.ToString() + " flag checks passed")
             }
         }
     }
     catch {
-        $note = "异常: " + $_.Exception.Message
+        $note = "exception: " + $_.Exception.Message
     }
     finally {
         if (Test-Path -LiteralPath $tmp) {
@@ -177,14 +177,14 @@ foreach ($check in $checks) {
         }
     }
 
-    $results += [pscustomobject]@{ 示例 = $check.Name; 模式 = $check.Mode; 结果 = $(if ($ok) { "PASS" } else { "FAIL" }); 说明 = $note }
+    $results += [pscustomobject]@{ Example = $check.Name; Mode = $check.Mode; Result = $(if ($ok) { "PASS" } else { "FAIL" }); Note = $note }
 }
 
 $results | Format-Table -AutoSize | Out-String -Width 200 | Write-Host
 
-$failed = @($results | Where-Object { $_.结果 -eq "FAIL" })
+$failed = @($results | Where-Object { $_.Result -eq "FAIL" })
 if ($failed.Count -gt 0) {
-    Write-Host ("有 " + $failed.Count + " 个示范工程验证失败") -ForegroundColor Red
+    Write-Host ($failed.Count.ToString() + " example(s) failed") -ForegroundColor Red
     exit 1
 }
-Write-Host "全部示范工程验证通过" -ForegroundColor Green
+Write-Host "All example projects verified" -ForegroundColor Green

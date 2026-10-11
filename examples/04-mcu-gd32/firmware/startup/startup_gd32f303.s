@@ -1,4 +1,5 @@
-/* 最小启动文件示范：真实项目请使用 GD32 固件库自带的 startup_gd32f30x_hd.s */
+/* Minimal startup file for demonstration; real projects should use the GD32 firmware
+   library's startup_gd32f30x_hd.s */
   .syntax unified
   .cpu cortex-m4
   .fpu softvfp

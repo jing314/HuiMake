@@ -1,13 +1,14 @@
-# STM32F407VGT6 裸机示范工程（arm-none-eabi-gcc）
-# 工具链、器件目标、优化档全部在这里描述，代码中不写死任何参数。
+# STM32F407VGT6 bare-metal example (arm-none-eabi-gcc)
+# Toolchain, device target and optimisation profiles are all described here; nothing is
+# hard-coded in the code.
 version: 1
 project: stm32f407-demo
 default_target: stm32f407
 default_mode: mcu-debug
 
 toolchains:
-  # 项目自带工具链条目：SDK 不在 PATH 时，直接写绝对路径即可
-  #   例如 cc: C:/gcc-arm-none-eabi/bin/arm-none-eabi-gcc.exe
+  # A project-local toolchain entry: when the SDK is not on PATH, use an absolute path
+  #   for example cc: C:/gcc-arm-none-eabi/bin/arm-none-eabi-gcc.exe
   stm32-arm-none-eabi:
     cc: arm-none-eabi-gcc
     cxx: arm-none-eabi-g++

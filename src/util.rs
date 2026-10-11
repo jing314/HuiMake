@@ -1,4 +1,4 @@
-//! 路径 / 进程 / 文件工具。
+//! Path / process / file helpers.
 
 use crate::error::{HkError, Result};
 use std::ffi::OsString;
@@ -11,7 +11,7 @@ use std::time::SystemTime;
 const VERBATIM_UNC: &str = "\\\\?\\UNC\\";
 const VERBATIM: &str = "\\\\?\\";
 
-/// 去掉 Windows 的 \\?\ 前缀：这类路径不能交给 gcc/ar 等外部工具。
+/// Strip the Windows \\?\ prefix: such paths cannot be handed to tools like gcc/ar.
 pub fn strip_verbatim(path: PathBuf) -> PathBuf {
     let text = path.to_string_lossy().to_string();
     if let Some(rest) = text.strip_prefix(VERBATIM_UNC) {
@@ -23,7 +23,7 @@ pub fn strip_verbatim(path: PathBuf) -> PathBuf {
     path
 }
 
-/// 绝对化 + 归一化（外部工具安全的路径形式）。
+/// Make a path absolute and normalized (a form external tools accept).
 pub fn normalize(path: &Path) -> std::io::Result<PathBuf> {
     fs::canonicalize(path).map(strip_verbatim)
 }
@@ -38,7 +38,8 @@ pub fn is_path_like(value: &str) -> bool {
         .any(|ext| lower.ends_with(ext))
 }
 
-/// 计算 path 相对 base 的路径，统一使用 / 分隔（用于匹配 glob、生成 obj 目录结构）。
+/// Path of `path` relative to `base`, with / separators (used for glob matching
+/// and for the object-file directory layout).
 pub fn rel_to(base: &Path, path: &Path) -> String {
     let b: Vec<Component<'_>> = base.components().collect();
     let p: Vec<Component<'_>> = path.components().collect();
@@ -58,10 +59,11 @@ pub fn mtime(path: &Path) -> Option<SystemTime> {
 }
 
 pub fn ensure_dir(path: &Path) -> Result<()> {
-    fs::create_dir_all(path).map_err(|e| HkError::io("创建目录", path, e))
+    fs::create_dir_all(path).map_err(|e| HkError::io("create directory", path, e))
 }
 
-/// 内容相同则不动文件（避免无意义地刷新 mtime，破坏增量构建）。
+/// Write only when the content differs, so a stale mtime cannot break
+/// incremental builds.
 pub fn write_if_changed(path: &Path, content: &str) -> Result<bool> {
     if let Ok(old) = fs::read_to_string(path) {
         if old == content {
@@ -71,24 +73,24 @@ pub fn write_if_changed(path: &Path, content: &str) -> Result<bool> {
     if let Some(parent) = path.parent() {
         ensure_dir(parent)?;
     }
-    fs::write(path, content).map_err(|e| HkError::io("写入", path, e))?;
+    fs::write(path, content).map_err(|e| HkError::io("write", path, e))?;
     Ok(true)
 }
 
 pub fn read_to_string(path: &Path) -> Result<String> {
-    fs::read_to_string(path).map_err(|e| HkError::io("读取", path, e))
+    fs::read_to_string(path).map_err(|e| HkError::io("read", path, e))
 }
 
 pub fn remove_path(path: &Path) -> Result<()> {
     if path.is_dir() {
-        fs::remove_dir_all(path).map_err(|e| HkError::io("删除目录", path, e))?;
+        fs::remove_dir_all(path).map_err(|e| HkError::io("remove directory", path, e))?;
     } else if path.exists() {
-        fs::remove_file(path).map_err(|e| HkError::io("删除文件", path, e))?;
+        fs::remove_file(path).map_err(|e| HkError::io("remove file", path, e))?;
     }
     Ok(())
 }
 
-/// 是否跳过该目录（隐藏目录 / 显式排除名）。
+/// Should this directory be skipped (hidden, or explicitly excluded)?
 fn is_pruned(path: &Path, skip_names: &[&str]) -> bool {
     match path.file_name().and_then(|n| n.to_str()) {
         Some(name) => name.starts_with('.') || skip_names.contains(&name),
@@ -96,7 +98,7 @@ fn is_pruned(path: &Path, skip_names: &[&str]) -> bool {
     }
 }
 
-/// 递归收集目录下所有文件（不含目录自身），结果已排序，保证可复现。
+/// Collect every file below `dir` (sorted, so results are reproducible).
 pub fn walk_files_pruned(dir: &Path, skip_names: &[&str]) -> Result<Vec<PathBuf>> {
     let mut out = Vec::new();
     if !dir.is_dir() {
@@ -104,9 +106,9 @@ pub fn walk_files_pruned(dir: &Path, skip_names: &[&str]) -> Result<Vec<PathBuf>
     }
     let mut stack = vec![dir.to_path_buf()];
     while let Some(current) = stack.pop() {
-        let entries = fs::read_dir(&current).map_err(|e| HkError::io("读取目录", &current, e))?;
+        let entries = fs::read_dir(&current).map_err(|e| HkError::io("read directory", &current, e))?;
         for entry in entries {
-            let entry = entry.map_err(|e| HkError::io("读取目录项", &current, e))?;
+            let entry = entry.map_err(|e| HkError::io("read directory entry", &current, e))?;
             let path = entry.path();
             if path.is_dir() {
                 if !is_pruned(&path, skip_names) {
@@ -121,7 +123,7 @@ pub fn walk_files_pruned(dir: &Path, skip_names: &[&str]) -> Result<Vec<PathBuf>
     Ok(out)
 }
 
-/// 递归收集目录及其所有子目录（用于 -I 头文件搜索路径）。
+/// Collect `dir` and all of its subdirectories (for -I include paths).
 pub fn walk_dirs_pruned(dir: &Path, skip_names: &[&str]) -> Result<Vec<PathBuf>> {
     let mut out = Vec::new();
     if !dir.is_dir() {
@@ -130,9 +132,9 @@ pub fn walk_dirs_pruned(dir: &Path, skip_names: &[&str]) -> Result<Vec<PathBuf>>
     out.push(dir.to_path_buf());
     let mut stack = vec![dir.to_path_buf()];
     while let Some(current) = stack.pop() {
-        let entries = fs::read_dir(&current).map_err(|e| HkError::io("读取目录", &current, e))?;
+        let entries = fs::read_dir(&current).map_err(|e| HkError::io("read directory", &current, e))?;
         for entry in entries {
-            let entry = entry.map_err(|e| HkError::io("读取目录项", &current, e))?;
+            let entry = entry.map_err(|e| HkError::io("read directory entry", &current, e))?;
             let path = entry.path();
             if path.is_dir() {
                 if is_pruned(&path, skip_names) {
@@ -149,10 +151,11 @@ pub fn walk_dirs_pruned(dir: &Path, skip_names: &[&str]) -> Result<Vec<PathBuf>>
 }
 
 // ---------------------------------------------------------------------------
-// 命令
+// Commands
 // ---------------------------------------------------------------------------
 
-/// 命令行超过该长度时改用 @响应文件，规避 Windows 32K 命令行上限。
+/// Above this length the command line is passed through an @response file,
+/// which avoids the Windows ~32K command line limit.
 pub const RESPONSE_FILE_LIMIT: usize = 7000;
 
 #[derive(Debug, Clone)]
@@ -160,7 +163,7 @@ pub struct Cmd {
     pub program: String,
     pub args: Vec<OsString>,
     pub cwd: Option<PathBuf>,
-    /// 额外传给子进程的环境变量。
+    /// Extra environment variables passed to the child process.
     pub envs: Vec<(String, String)>,
 }
 
@@ -202,8 +205,9 @@ impl Cmd {
         self
     }
 
-    /// 编译器/归档器/objcopy 都需要一个可写的临时目录（gcc 会把中间文件写进 TMPDIR）。
-    /// 这里统一指向构建目录下的 tmp，避免依赖调用者环境里的 TEMP 是否可写。
+    /// Compilers, archivers and objcopy all need a writable temp directory (gcc writes
+    /// its intermediates into TMPDIR). Point them at the build directory so the build
+    /// never depends on whether the caller's TEMP is writable.
     pub fn temp_env(self, dir: &Path) -> Self {
         let value = dir.to_string_lossy().to_string();
         self.env("TMPDIR", value.clone())
@@ -211,7 +215,7 @@ impl Cmd {
             .env("TEMP", value)
     }
 
-    /// 供人阅读 / 复制的完整命令行。
+    /// Full command line, for reading and copying.
     pub fn display(&self) -> String {
         let mut out = shell_quote(&self.program);
         for a in &self.args {
@@ -225,7 +229,7 @@ impl Cmd {
         self.program.len() + self.args.iter().map(|a| a.len() + 1).sum::<usize>()
     }
 
-    /// 命令行过长时改写为 @rsp 形式。
+    /// Rewrite the command line as an @response file when it is too long.
     pub fn with_response_file(mut self, rsp: &Path) -> Result<Self> {
         if self.total_len() <= RESPONSE_FILE_LIMIT {
             return Ok(self);
@@ -258,7 +262,7 @@ impl Cmd {
         })
     }
 
-    /// 成功则返回输出；失败则返回带命令行的错误。
+    /// Run the command; on failure return an error carrying the command line.
     pub fn run_checked(&self, what: &str) -> Result<CmdOutput> {
         let out = self.run().map_err(|e| e.context(what.to_string()))?;
         if out.success {
@@ -268,7 +272,7 @@ impl Cmd {
         }
     }
 
-    /// 继承 stdio 运行（用于 hk run 执行用户程序）。
+    /// Run with inherited stdio (used by `hk run` to execute the built program).
     pub fn run_inherit(&self) -> Result<Option<i32>> {
         let mut cmd = Command::new(&self.program);
         cmd.args(&self.args);
@@ -284,13 +288,13 @@ impl Cmd {
         if err.kind() == std::io::ErrorKind::NotFound {
             HkError::with_source(
                 format!(
-                    "找不到可执行文件 {:?}，请检查 hk.yaml 的 toolchains 配置或确认它已加入 PATH",
+                    "executable not found: {:?} — check the toolchains section of hk.yaml, or make sure it is on PATH",
                     self.program
                 ),
                 err,
             )
         } else {
-            HkError::with_source(format!("无法启动命令 {}", self.command_line()), err)
+            HkError::with_source(format!("failed to spawn {}", self.command_line()), err)
         }
     }
 
@@ -310,7 +314,7 @@ fn shell_quote(text: &str) -> String {
     }
 }
 
-/// GCC 响应文件的参数转义。
+/// Argument quoting for a GCC response file.
 fn response_quote(text: &str) -> String {
     if text.is_empty() {
         return "\"\"".to_string();
@@ -331,7 +335,7 @@ fn response_quote(text: &str) -> String {
     }
 }
 
-/// 供 --print-plan 使用：把命令写成可直接执行的一行 shell。
+/// One-line shell form of a command, used by --print-plan.
 pub fn plan_line(cmd: &Cmd) -> String {
     let mut line = cmd.display();
     if let Some(dir) = &cmd.cwd {
@@ -340,21 +344,21 @@ pub fn plan_line(cmd: &Cmd) -> String {
     line
 }
 
-/// 把计划写入文件（--print-plan --output xxx）。
+/// Write the plan to a file (--print-plan --output FILE).
 pub fn write_plan(path: &Path, lines: &[String]) -> Result<()> {
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() {
             ensure_dir(parent)?;
         }
     }
-    let mut file = fs::File::create(path).map_err(|e| HkError::io("创建计划文件", path, e))?;
+    let mut file = fs::File::create(path).map_err(|e| HkError::io("create plan file", path, e))?;
     for line in lines {
-        writeln!(file, "{line}").map_err(|e| HkError::io("写入计划文件", path, e))?;
+        writeln!(file, "{line}").map_err(|e| HkError::io("write plan file", path, e))?;
     }
     Ok(())
 }
 
-/// 供日志使用的短路径显示。
+/// Short path form for log output.
 pub fn short_path(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }

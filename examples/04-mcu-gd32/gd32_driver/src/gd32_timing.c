@@ -1,4 +1,4 @@
-/* 时序敏感代码：通过 compile.per_file 指定 -O2 */
+/* Timing-sensitive code: -O2 comes from compile.per_file */
 
 static unsigned int s_reload = 1000u;
 
@@ -12,6 +12,6 @@ void gd32_delay_loop(unsigned int loops)
     volatile unsigned int i;
 
     for (i = 0; i < loops; ++i) {
-        /* 空转 */
+        /* busy wait */
     }
 }

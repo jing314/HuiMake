@@ -1,17 +1,20 @@
 # =============================================================================
-# HuiMake 内置默认全局配置 (hk.yaml)
+# HuiMake built-in default global configuration (hk.yaml)
 #
-# 用法：
-#   * 工具内置本文件作为默认值，任何一项都可以被项目根目录下的 hk.yaml 覆盖。
-#   * 执行 `hk init` 可以把当前生效的配置（含平台相关默认值）导出到项目根，
-#     之后直接编辑该文件即可，无需修改工具的源码。
-#   * 所有编译器 / 链接器 / 目标 / 优化参数都来自这里，代码中不再写死任何工具名。
+# How this file is used:
+#   * hk ships this file as its defaults; any entry can be overridden by the hk.yaml
+#     in your project root.
+#   * `hk init` exports the effective configuration (including platform-specific
+#     defaults) into the project root so you can edit it directly instead of
+#     touching the tool's source.
+#   * Every toolchain, target, optimisation and linker setting comes from here;
+#     no tool name is hard-coded in the Rust code.
 #
-# 三个概念：
-#   toolchains : 工具链 = 一组可执行文件（cc/cxx/ar/objcopy/objdump/size）
-#   targets    : 目标   = 交叉编译目标（工具链 + 架构参数 + specs + 链接方式 + 产物）
-#   profiles   : 配置档 = 构建模式（优化级别、警告、宏、strip、产物）
-#   实际命令行 = toolchain × target × profile × 模块 config.yaml
+# Three concepts:
+#   toolchains : a set of executables (cc/cxx/ar/objcopy/objdump/size)
+#   targets    : a cross-compilation target (toolchain + arch flags + specs + link mode + artifacts)
+#   profiles   : a build mode (optimisation level, warnings, macros, strip, artifacts)
+#   final command line = toolchain x target x profile x module config.yaml
 # =============================================================================
 version: 1
 project: null
@@ -21,13 +24,14 @@ default_target: host
 default_mode: debug
 jobs: 0
 
-# 编译器临时目录（TMPDIR/TMP/TEMP），null 表示用 <模块>/<build_dir>/tmp。
-# 显式配置为相对路径时相对工程根；每个模块会再分一个子目录。
-# 单独配置它主要是为了：不依赖外部 TEMP 是否可写、构建临时文件集中清理。
+# Temp directory for compilers (TMPDIR/TMP/TEMP); null means <module>/<build_dir>/tmp.
+# A relative path is resolved against the project root, and every module gets a
+# subdirectory of its own. Configure it to stop depending on whether the ambient
+# TEMP is writable, and to keep build temp files in one place.
 temp_dir: null
 
 # -----------------------------------------------------------------------------
-# 工具链
+# Toolchains
 # -----------------------------------------------------------------------------
 toolchains:
   host:
@@ -87,13 +91,14 @@ toolchains:
     size: aarch64-linux-gnu-size
 
 # -----------------------------------------------------------------------------
-# 目标（交叉编译）
-#   cflags/cxxflags/ldflags/defines/libs : 该目标下所有模块都会带上
-#   specs        : -specs=...（nano.specs / nosys.specs / rdimon.specs ...）
-#   post         : 链接后产物 elf/bin/hex/map/size/lst
-#   memory_usage : 传 -Wl,--print-memory-usage 并解析 FLASH/RAM 占用（GCC 10+）
-#   runnable     : 产物能否在本机运行（MCU 目标为 false，hk run 会拒绝执行）
-#   static_suffix / shared_suffix / exe_suffix : 产物命名，缺省按宿主平台推断
+# Targets (cross-compilation)
+#   cflags/cxxflags/ldflags/defines/libs : applied to every module of this target
+#   specs        : -specs=... (nano.specs / nosys.specs / rdimon.specs ...)
+#   post         : post-link artifacts, elf/bin/hex/map/size/lst
+#   memory_usage : pass -Wl,--print-memory-usage and report FLASH/RAM usage (GCC 10+)
+#   runnable     : can the artifact run on the host? false for MCU targets, where
+#                  hk run refuses to execute it
+#   static_suffix / shared_suffix / exe_suffix : artifact naming, host defaults
 # -----------------------------------------------------------------------------
 targets:
   host:
@@ -114,7 +119,7 @@ targets:
     post: []
     runnable: true
 
-  # ---- ARM Cortex-M 系列（裸机 / MCU）------------------------------------
+  # ---- ARM Cortex-M family (bare metal / MCU) --------------------------------
   cortex-m0:
     toolchain: arm-none-eabi
     cflags: [-mcpu=cortex-m0, -mthumb, -mfloat-abi=soft]
@@ -185,7 +190,7 @@ targets:
     exe_suffix: .elf
 
 # -----------------------------------------------------------------------------
-# 配置档（构建模式，--mode/-m 选择）
+# Build profiles (selected with --mode/-m)
 # -----------------------------------------------------------------------------
 profiles:
   debug:
@@ -198,20 +203,20 @@ profiles:
     defines: [NDEBUG]
     strip: true
 
-  # MCU 调试：保留调试信息，优化到可断点级别
+  # MCU debug: keep debug info, optimise enough to stay breakpoint-friendly
   mcu-debug:
     cflags: [-Og, -g3, -Wall, -ffunction-sections, -fdata-sections, -fno-common]
     defines: [DEBUG]
     post: [elf, map, size]
 
-  # MCU 发布：体积优先 + section 回收 + 去除符号，并输出全部烧录产物
+  # MCU release: size first + section garbage collection + no symbols, all flash artifacts
   mcu-release:
     cflags: [-Os, -g0, -Wall, -Wextra, -ffunction-sections, -fdata-sections, -fno-common]
     defines: [NDEBUG]
     strip: true
     post: [elf, bin, hex, map, size]
 
-  # 极限体积
+  # Smallest possible size
   mcu-size:
     cflags: [-Os, -g0, -Wall, -ffunction-sections, -fdata-sections, -fno-common, -flto]
     defines: [NDEBUG]

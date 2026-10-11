@@ -1,6 +1,8 @@
-//! 编译/链接参数组装：工具链 × 目标 × 配置档 × 模块配置，全部来自 YAML。
+//! Compile/link flag assembly: toolchain x target x profile x module config, all of
+//! it driven by YAML.
 //!
-//! 这里是纯函数，便于单元测试（尤其是交叉编译/MCU 场景不再需要真实工具链即可断言）。
+//! These are pure functions, which makes them easy to unit test: cross-compilation
+//! and MCU scenarios can be checked without the real toolchain installed.
 
 use crate::config::{ConfigView, Kind, Profile, Target};
 use std::path::{Path, PathBuf};
@@ -10,15 +12,16 @@ pub struct FlagInput<'a> {
     pub target: &'a Target,
     pub profile: &'a Profile,
     pub kind: Kind,
-    /// 本模块 + 依赖传播过来的头文件搜索目录（已解析为绝对路径）。
+    /// Include search directories of this module plus those propagated by
+    /// dependencies (already resolved to absolute paths).
     pub include_dirs: &'a [PathBuf],
-    /// -L 搜索目录（已解析为绝对路径）。
+    /// -L search directories (already resolved to absolute paths).
     pub lib_dirs: Vec<String>,
-    /// 链接脚本（已解析为绝对路径）。
+    /// Linker script (already resolved to an absolute path).
     pub linker_script: Option<String>,
-    /// 依赖通过 public.defines 传播过来的宏。
+    /// Macros propagated from dependencies through public.defines.
     pub public_defines: &'a [String],
-    /// 依赖通过 public.cflags 传播过来的编译参数。
+    /// Compile flags propagated from dependencies through public.cflags.
     pub public_cflags: &'a [String],
     pub map_path: Option<&'a Path>,
     pub strip: bool,
@@ -30,7 +33,7 @@ fn defines(view: &ConfigView<'_>, target: &Target, profile: &Profile, public: &[
     out.extend(target.defines.iter().cloned());
     out.extend(profile.defines.iter().cloned());
     out.extend(public.iter().cloned());
-    // 目标级宏与模块 public.defines 常常重复，去重后输出更干净
+    // Target macros and public.defines often overlap; dedup keeps the command clean
     let mut seen = std::collections::HashSet::new();
     out.retain(|item| seen.insert(item.clone()));
     out
@@ -56,8 +59,9 @@ fn include_args(dirs: &[PathBuf]) -> Vec<String> {
     out
 }
 
-/// 目标级架构参数（以 -m 开头，例如 -mcpu / -mthumb / -mfloat-abi / -mfpu）。
-/// 这类参数同时用于链接，保证 ld 选择正确的架构与运行库。
+/// Target architecture flags (those starting with -m, e.g. -mcpu / -mthumb /
+/// -mfloat-abi / -mfpu). They are also passed to the link step so that ld picks the
+/// right architecture and runtime libraries.
 fn arch_flags(target: &Target) -> Vec<String> {
     target
         .cflags
@@ -67,7 +71,7 @@ fn arch_flags(target: &Target) -> Vec<String> {
         .collect()
 }
 
-/// specs 既支持裸名（nano.specs），也支持已经带 -specs= 前缀的写法。
+/// Accepts both a bare spec name (nano.specs) and one already prefixed with -specs=.
 fn spec_arg(spec: &str) -> String {
     if spec.starts_with("-specs=") || spec.starts_with("--specs=") {
         spec.to_string()
@@ -97,7 +101,7 @@ fn target_machine_args(input: &FlagInput<'_>, cxx: bool) -> Vec<String> {
     out
 }
 
-/// C 与 C++ 各自的编译参数（不含 -c/-o/源文件）。
+/// Compile flags for C and C++ (without -c/-o/the source file).
 pub fn compile(input: &FlagInput<'_>) -> (Vec<String>, Vec<String>) {
     let defines = defines(&input.view, input.target, input.profile, input.public_defines);
     let undefines = input.view.undefines();
@@ -123,7 +127,7 @@ pub fn compile(input: &FlagInput<'_>) -> (Vec<String>, Vec<String>) {
     (c, cxx)
 }
 
-/// 链接参数中位于目标文件之前的部分。
+/// Link flags that come before the objects.
 pub fn link_pre(input: &FlagInput<'_>) -> Vec<String> {
     let link = input.view.link();
     let mut out = Vec::new();
@@ -171,7 +175,7 @@ pub fn link_pre(input: &FlagInput<'_>) -> Vec<String> {
     out
 }
 
-/// 链接参数中位于库之后的部分。
+/// Link flags that come after the libraries.
 pub fn link_post(input: &FlagInput<'_>, output: &Path) -> Vec<String> {
     let mut out = Vec::new();
     for lib in &input.target.libs {
@@ -185,7 +189,7 @@ pub fn link_post(input: &FlagInput<'_>, output: &Path) -> Vec<String> {
     out
 }
 
-/// 编译单个文件时追加的逐文件参数。
+/// Per-file extra flags for a single source file.
 pub fn per_file_flags(view: &ConfigView<'_>, rel_path: &str) -> Vec<String> {
     let mut out = Vec::new();
     for (pattern, flags) in view.per_file() {
@@ -231,10 +235,10 @@ mod tests {
         };
         let (c, cxx) = compile(&input);
         assert_eq!(c[0], "-std=c11");
-        assert!(c.contains(&"-Og".to_string()), "debug profile 的 -Og 应来自 YAML");
+        assert!(c.contains(&"-Og".to_string()), "the -Og of the debug profile must come from YAML");
         assert!(c.contains(&"-DDEBUG".to_string()));
         assert!(c.contains(&"-DFOO=1".to_string()));
-        // C++ 未配置 cxx_std 时不应注入 -std=
+        // no -std= must be injected when cxx_std is unset
         assert!(!cxx.iter().any(|a| a.starts_with("-std=")));
     }
 
@@ -272,7 +276,7 @@ mod tests {
             "-DSTM32F407xx",
             "-DNDEBUG",
         ] {
-            assert!(c.contains(&expected.to_string()), "缺少 {expected}: {c:?}");
+            assert!(c.contains(&expected.to_string()), "missing {expected}: {c:?}");
         }
 
         let map = std::path::PathBuf::from("build/bin/fw.map");
@@ -295,7 +299,7 @@ mod tests {
         assert!(pre.contains(&"-Wl,--print-memory-usage".to_string()));
         assert!(pre.contains(&format!("-Wl,-Map,{}", map.display())));
         assert!(pre.contains(&"-specs=nano.specs".to_string()));
-        // 链接脚本来自模块配置（此处为 None）时不应凭空添加 -T
+        // no -T must be invented when the module config has no linker script
         assert!(!pre.contains(&"-T".to_string()));
         let post = link_post(&link_input, &out);
         assert!(post.contains(&"-o".to_string()));

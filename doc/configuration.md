@@ -1,5 +1,10 @@
 # HuiMake 配置参考（v0.2）
 
+> hk 的命令行、日志与错误信息全部为**英文**。
+> 日志级别：debug 构建的 hk 默认 INFO（逐条编译/链接进度）；**release 构建的 hk 默认 WARN**
+> （只打印警告、错误与最终汇总）。`-v` → DEBUG（含每条实际执行的命令），`-vv` → TRACE，
+> `-q` → 仅错误。所有子进程（cc/ar/objcopy/size）都以模块 `build/tmp` 作为 TMPDIR/TMP/TEMP。
+
 三层配置，全部是 YAML，代码里不写死任何编译器与编译参数：
 
 ```
@@ -33,7 +38,7 @@ hk.yaml (工程根)          config.yaml (每个模块)
 3. 从工程根向下最多 6 层扫描含 `config.yaml` 的目录作为模块，
    跳过 `build`、隐藏目录、`node_modules` / `target` 等；
 4. **遇到自带 `hk.yaml` / `project.yaml` 的子目录就停下**：它属于另一个工程，
-   不会被并入当前工程（并打印"跳过子工程 xxx"）。
+   不会被并入当前工程（并打印 `skipping nested project xxx`）。
 
 推论：像 `examples/` 这种"多个工程摆在一起"的目录**不是**一个工程，
 直接在它下面运行 `hk build` 只会构建那些不属于任何子工程的模块；
@@ -295,13 +300,13 @@ link:
 
 | 现象 | 处理 |
 | --- | --- |
-| `未知目标 "x"，可用目标: ...` | `hk config` 查看内置目标名，或用 `hk init` 导出后添加 |
-| `找不到可执行文件 "arm-none-eabi-gcc"` | 工具链未安装或不在 PATH；也可在 `hk.yaml` 里写绝对路径 |
-| `模块重名` | 两个目录的 `config.yaml` 里 `name` 相同，显式改成不同名字 |
-| `无法解析依赖` | `deps.mods` 里写的是模块名 / 目录名 / 相对路径，检查拼写 |
-| `检测到循环依赖` | 依赖成环，拆开模块 |
+| `unknown target "x"; available: ...` | `hk config` 查看内置目标名，或用 `hk init` 导出后添加 |
+| `executable not found: "arm-none-eabi-gcc"` | 工具链未安装或不在 PATH；也可在 `hk.yaml` 里写绝对路径 |
+| `duplicate module name` | two `config.yaml` files use the same `name`; give them distinct names |
+| `cannot resolve dependency` | `deps.mods` takes a module name, a directory name or a relative path; check the spelling |
+| `dependency cycle detected` | the dependency graph has a cycle; break the modules apart |
 | YAML 报未知字段 | 字段名写错，对照本文档 |
 | 想要看真正执行的命令 | `hk build -vv` 或 `hk build --print-plan` |
 | `Cannot create temporary file ... Permission denied` | 编译器没法写系统临时目录（受限环境、沙箱或 TEMP 被改写）。hk 已把 TMPDIR/TMP/TEMP 指向 `<模块>/build/tmp`，正常不会再遇到；若仍失败，在 `hk.yaml` 里把 `temp_dir` 指到可写目录 |
-| `模块重名 "x"` | 同名模块。若它们属于不同工程（例如在多个工程的上层目录运行），进入具体工程目录或用 `--module` 指定；若同属一个工程，给它们设置不同的 `name`。子目录自带 `hk.yaml` 时会被当作独立工程跳过 |
-| `未知模式 "xxx"` | `-m/--mode` 是构建模式（profiles 名），不是模块目录；指定模块请用 `--module NAME` |
+| `duplicate module name "x"` | 同名模块。若它们属于不同工程（例如在多个工程的上层目录运行），进入具体工程目录或用 `--module` 指定；若同属一个工程，给它们设置不同的 `name`。子目录自带 `hk.yaml` 时会被当作独立工程跳过 |
+| `unknown mode "xxx"` | `-m/--mode` 是构建模式（profiles 名），不是模块目录；指定模块请用 `--module NAME` |

@@ -1,4 +1,4 @@
-//! 命令实现：build / run / clean / new / init / config。
+//! Command implementations: build / run / clean / new / init / config.
 
 use crate::build::{self, BuildOptions};
 use crate::cli::{BuildArgs, CleanArgs, Cli, Command, ConfigArgs, InitArgs, NewArgs, RunArgs};
@@ -26,12 +26,15 @@ pub fn run(cli: Cli) -> Result<i32> {
     }
 }
 
+/// Console level: -q lowers to errors only, -v raises to debug, -vv to trace.
+/// Without flags the compiled-in default is used (INFO for debug builds of hk,
+/// WARN for release builds, so a shipped hk stays quiet).
 fn set_log_level(cli: &Cli) {
     let level = if cli.quiet {
         log::ERROR
     } else {
         match cli.verbose {
-            0 => log::INFO,
+            0 => log::DEFAULT_LEVEL,
             1 => log::DEBUG,
             _ => log::TRACE,
         }
@@ -47,14 +50,15 @@ fn print_help() {
 }
 
 fn current_dir() -> Result<PathBuf> {
-    std::env::current_dir().map_err(|e| HkError::with_source("获取当前目录失败", e))
+    std::env::current_dir().map_err(|e| HkError::with_source("failed to get the current directory", e))
 }
 
 fn open_project() -> Result<Project> {
     Project::discover(&current_dir()?)
 }
 
-/// 未显式指定时：在模块目录内只构建该模块，在工程根构建全部。
+/// Without an explicit --module: inside a module directory only that module is
+/// built, at the project root everything is built.
 fn effective_scope(project: &Project, explicit: Option<&str>) -> Option<String> {
     match explicit {
         Some(name) => Some(name.to_string()),
@@ -77,8 +81,9 @@ fn make_options(args: &BuildArgs, project: &Project) -> BuildOptions {
     }
 }
 
-/// 先校验 -m/-t 是否合法，再去做工程发现；
-/// 否则 -m 后面误写成目录这类问题会被"模块重名"之类的错误掩盖。
+/// Validate -m/-t before scanning for modules. Otherwise a mistake such as
+/// "-m .\01-single-module\" gets buried under unrelated errors like
+/// "duplicate module name".
 fn precheck_mode_and_target(args: &BuildArgs) -> Result<()> {
     if args.mode.is_none() && args.target.is_none() {
         return Ok(());
@@ -99,13 +104,13 @@ fn cmd_build(args: &BuildArgs) -> Result<i32> {
     precheck_mode_and_target(args)?;
     let project = open_project()?;
     crate::log_debug!(
-        "工程根 {}，模块 [{}]",
+        "project root {}, modules [{}]",
         project.root.display(),
         project.module_names()
     );
     match &project.global_file {
-        Some(file) => crate::log_debug!("工程配置 {}", file.display()),
-        None => crate::log_debug!("未找到 hk.yaml，使用内置默认配置"),
+        Some(file) => crate::log_debug!("project config {}", file.display()),
+        None => crate::log_debug!("no hk.yaml found, using the built-in defaults"),
     }
     let opts = make_options(args, &project);
     if let Some(scope) = &opts.scope {
@@ -125,8 +130,8 @@ fn cmd_run(args: &RunArgs) -> Result<i32> {
     let settings = build::resolve(&project, &opts)?;
     if !settings.target.runnable {
         return Err(HkError::new(format!(
-            "目标 {:?} 的产物无法在本机运行（hk.yaml 中 runnable: false）\
-             —— MCU 目标请用生成的 bin/hex 文件烧录",
+            "target {:?} cannot run on this host (runnable: false in hk.yaml) — \
+             flash the generated .bin/.hex onto the MCU instead",
             settings.target_name
         )));
     }
@@ -154,23 +159,23 @@ fn cmd_run(args: &RunArgs) -> Result<i32> {
     }
     if targets.is_empty() {
         return Err(HkError::new(
-            "没有可运行的可执行文件：模块 kind 需要是 executable，或用 --bin 指定",
+            "no runnable executable found: the module kind must be executable, or select one with --bin",
         ));
     }
 
     for (module, exe) in targets {
         let dir = project.module(&module)?.dir.clone();
-        crate::log_plain!("==> 运行 {}（工作目录 {}）", util::short_path(&exe), util::short_path(&dir));
+        crate::log_info!("running {} (cwd {})", util::short_path(&exe), util::short_path(&dir));
         let cmd = Cmd::new(exe.to_string_lossy().to_string())
             .args(args.args.clone())
             .cwd(dir);
         match cmd.run_inherit()? {
             Some(0) => {}
             Some(code) => {
-                crate::log_error!("{} 退出码 {}", module, code);
+                crate::log_error!("{module} exited with code {code}");
                 return Ok(code);
             }
-            None => return Err(HkError::new(format!("{module} 被信号终止"))),
+            None => return Err(HkError::new(format!("{module} was terminated by a signal"))),
         }
     }
     Ok(0)
@@ -195,24 +200,29 @@ fn cmd_clean(args: &CleanArgs) -> Result<i32> {
             continue;
         }
         if args.dry_run {
-            crate::log_plain!("将删除 {}", dir.display());
+            crate::log_plain!("would remove {}", dir.display());
             continue;
         }
         util::remove_path(&dir)?;
-        crate::log_debug!("已清理 {}", dir.display());
+        crate::log_debug!("removed {}", dir.display());
         removed += 1;
     }
-    crate::log_plain!("清理完成：{removed} 个模块的 {} 目录", project.global.build_dir);
+    crate::log_plain!(
+        "Clean finished: removed the {} directory of {removed} module(s)",
+        project.global.build_dir
+    );
     Ok(0)
 }
 
 fn cmd_new(args: &NewArgs) -> Result<i32> {
     let name = args.name.trim();
     if name.is_empty() {
-        return Err(HkError::new("模块名不能为空"));
+        return Err(HkError::new("module name must not be empty"));
     }
     if name.contains('/') || name.contains('\\') || name == "." || name == ".." {
-        return Err(HkError::new(format!("模块名 {name:?} 不合法（不能包含路径分隔符）")));
+        return Err(HkError::new(format!(
+            "invalid module name {name:?} (must not contain path separators)"
+        )));
     }
     let parent = match &args.dir {
         Some(dir) => dir.clone(),
@@ -221,7 +231,7 @@ fn cmd_new(args: &NewArgs) -> Result<i32> {
     let dir = parent.join(name);
     if dir.exists() && !args.force {
         return Err(HkError::new(format!(
-            "目录 {} 已存在（加 --force 覆盖其中的模板文件）",
+            "directory {} already exists (use --force to overwrite the template files)",
             dir.display()
         )));
     }
@@ -240,7 +250,7 @@ fn cmd_new(args: &NewArgs) -> Result<i32> {
         Kind::HeaderOnly => {
             util::write_if_changed(
                 &dir.join("include").join(format!("{name}.h")),
-                &format!("#ifndef {upper}_H\n#define {upper}_H\n\n/* TODO: 声明接口 */\n\n#endif\n", upper = name.to_uppercase()),
+                &format!("#ifndef {upper}_H\n#define {upper}_H\n\n/* TODO: declare the interface */\n\n#endif\n", upper = name.to_uppercase()),
             )?;
         }
         _ => {
@@ -259,47 +269,48 @@ fn cmd_new(args: &NewArgs) -> Result<i32> {
     }
     util::write_if_changed(&dir.join(".gitignore"), "/build\n")?;
 
-    crate::log_plain!("已创建模块 {}（{}）", util::short_path(&dir), kind.as_str());
-    crate::log_plain!("下一步：编辑 {}/{}，然后运行 hk build", name, MODULE_FILE_NAME);
+    crate::log_plain!("Created module {} ({})", util::short_path(&dir), kind.as_str());
+    crate::log_plain!("Next: edit {name}/{MODULE_FILE_NAME}, then run hk build");
     Ok(0)
 }
 
 fn module_template(name: &str, kind: Kind) -> String {
     format!(
-        "# 模块配置（HuiMake）\n\
-         # 完整的字段说明见 hk config 导出结果，或 doc/configuration.md\n\
+        "# Module configuration (HuiMake)\n\
+         # Full field reference: run \"hk config\" or see doc/configuration.md\n\
          name: {name}\n\
          kind: {kind}\n\
          \n\
-         # 语言标准（不写则用编译器默认值）\n\
+         # Language standard (omit to use the compiler default)\n\
          # std: c11\n\
          # cxx_std: c++17\n\
          \n\
-         # 源码 glob（相对本目录）；不写则默认扫描 src/ 与 bin/ 下的 .c/.cc/.cpp/.S\n\
+         # Source globs, relative to this directory.\n\
+         # Omit to scan src/ and bin/ for .c/.cc/.cpp/.S/.s\n\
          # sources:\n\
          #   - src/**/*.c\n\
          # exclude:\n\
          #   - src/legacy/**\n\
          \n\
-         # 头文件目录（默认 include/），可加多个\n\
+         # Header directories (default: include/), every subdirectory is added to -I\n\
          # include:\n\
          #   - include\n\
          #   - api\n\
          \n\
-         # 全局宏声明\n\
+         # Global macros\n\
          # defines:\n\
          #   - VERSION=\"1.0.0\"\n\
          #   - ENABLE_LOG\n\
          \n\
-         # 依赖\n\
+         # Dependencies\n\
          # deps:\n\
-         #   mods: [other_module]      # 工程内模块\n\
-         #   system: [pthread, m]      # -lxxx\n\
+         #   mods: [other_module]         # modules of this project\n\
+         #   system: [pthread, m]         # -lxxx\n\
          #   static: [third_party/libfoo.a]\n\
          #   shared: [z]\n\
          #   lib_dirs: [third_party/lib]\n\
          \n\
-         # 交叉编译时按目标覆盖（目标名来自 hk.yaml 的 targets）\n\
+         # Per-target overrides (target names come from hk.yaml)\n\
          # targets:\n\
          #   cortex-m4f:\n\
          #     defines: [STM32F407xx, USE_HAL_DRIVER]\n\
@@ -316,14 +327,16 @@ fn cmd_init(args: &InitArgs) -> Result<i32> {
     let path = if file.is_absolute() { file } else { cwd.join(file) };
     if path.exists() && !args.force {
         return Err(HkError::new(format!(
-            "{} 已存在（加 --force 覆盖）",
+            "{} already exists (use --force to overwrite)",
             path.display()
         )));
     }
     let global = GlobalConfig::builtin()?;
     util::write_if_changed(&path, &global.dump()?)?;
-    crate::log_plain!("已生成 {}", util::short_path(&path));
-    crate::log_plain!("现在可以直接编辑该文件配置工具链（toolchains）、交叉编译目标（targets）与构建模式（profiles）");
+    crate::log_plain!("Wrote {}", util::short_path(&path));
+    crate::log_plain!(
+        "Edit it to configure toolchains, cross-compilation targets and build modes (profiles)"
+    );
     Ok(0)
 }
 
@@ -338,16 +351,17 @@ fn cmd_config(args: &ConfigArgs) -> Result<i32> {
         let naming = target.naming(toolchain);
         let mode = args.mode.clone().unwrap_or_else(|| global.default_mode.clone());
         let profile = global.profile(&mode)?;
-        println!("# 目标 {target_name}（工具链 {}）", target.toolchain);
+        println!("# target {target_name} (toolchain {})", target.toolchain);
         println!("cc            = {}", toolchain.cc.clone().unwrap_or_default());
         println!("cxx           = {}", toolchain.cxx.clone().unwrap_or_default());
         println!("ar            = {}", toolchain.ar.clone().unwrap_or_default());
         println!("objcopy       = {}", toolchain.objcopy.clone().unwrap_or_default());
+        println!("objdump       = {}", toolchain.objdump.clone().unwrap_or_default());
         println!("size          = {}", toolchain.size.clone().unwrap_or_default());
-        println!("可本机运行    = {}", target.runnable);
-        println!("静态库命名    = {}", naming.static_lib_name("NAME"));
-        println!("动态库命名    = {}", naming.shared_lib_name("NAME"));
-        println!("可执行命名    = {}", naming.executable_name("NAME"));
+        println!("runnable      = {}", target.runnable);
+        println!("static lib    = {}", naming.static_lib_name("NAME"));
+        println!("shared lib    = {}", naming.shared_lib_name("NAME"));
+        println!("executable    = {}", naming.executable_name("NAME"));
         println!("defines       = {}", target.defines.join(" "));
         println!("cflags        = {}", target.cflags.join(" "));
         println!("ldflags       = {}", target.ldflags.join(" "));
@@ -359,7 +373,7 @@ fn cmd_config(args: &ConfigArgs) -> Result<i32> {
         println!("entry         = {}", target.entry.clone().unwrap_or_default());
         println!("post          = {:?}", target.post);
         println!("memory_usage  = {}", target.memory_usage);
-        println!("# 模式 {mode}（用 -m 指定其他配置档）");
+        println!("# mode {mode} (use -m to pick another profile)");
         println!("profile cflags = {}", profile.cflags.join(" "));
         println!("profile ldflags= {}", profile.ldflags.join(" "));
         println!("strip          = {}", profile.strip || target.strip);
@@ -370,7 +384,7 @@ fn cmd_config(args: &ConfigArgs) -> Result<i32> {
     match &args.output {
         Some(path) => {
             util::write_if_changed(path, &text)?;
-            crate::log_plain!("已写入 {}", util::short_path(path));
+            crate::log_plain!("Wrote {}", util::short_path(path));
         }
         None => print!("{text}"),
     }

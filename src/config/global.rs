@@ -1,4 +1,4 @@
-//! 工程级配置：hk.yaml —— 工具链 / 目标（交叉编译）/ 配置档（构建模式）。
+//! Project-level configuration (hk.yaml): toolchains, targets and build profiles.
 
 use super::{Naming, PostAction};
 use crate::error::{HkError, Result};
@@ -22,7 +22,7 @@ fn d_true() -> bool {
     true
 }
 
-/// 工程级配置。
+/// Project-level configuration.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct GlobalConfig {
@@ -36,11 +36,12 @@ pub struct GlobalConfig {
     pub default_target: String,
     #[serde(default = "d_default_mode")]
     pub default_mode: String,
-    /// 并行任务数，0 表示按 CPU 核数自动。
+    /// Parallel jobs; 0 means one per CPU core.
     #[serde(default)]
     pub jobs: usize,
-    /// 编译器临时目录（TMPDIR/TMP/TEMP）。
-    /// 缺省用 <模块>/<build_dir>/tmp；设为相对路径时相对工程根。
+    /// Temp directory handed to the compiler through TMPDIR/TMP/TEMP.
+    /// Defaults to <module>/<build_dir>/tmp; a relative path is resolved against
+    /// the project root.
     #[serde(default)]
     pub temp_dir: Option<String>,
     #[serde(default)]
@@ -51,17 +52,17 @@ pub struct GlobalConfig {
     pub profiles: IndexMap<String, Profile>,
 }
 
-/// 工具链：一组可执行文件 + 产物命名约定。
+/// A toolchain: a set of executables plus artifact naming conventions.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Toolchain {
-    /// C 编译器，例如 arm-none-eabi-gcc。
+    /// C compiler, e.g. arm-none-eabi-gcc.
     #[serde(default)]
     pub cc: Option<String>,
-    /// C++ 编译器；模块含 C++ 源码时使用，缺省则由 cc 处理。
+    /// C++ compiler, used when a module contains C++ sources; required in that case.
     #[serde(default)]
     pub cxx: Option<String>,
-    /// 静态库打包器。
+    /// Static library archiver.
     #[serde(default)]
     pub ar: Option<String>,
     #[serde(default)]
@@ -89,34 +90,34 @@ impl Toolchain {
         self.cc
             .as_deref()
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| HkError::new("工具链缺少 cc 配置：请在 hk.yaml 的 toolchains 中补充"))
+            .ok_or_else(|| HkError::new("toolchain has no cc configured (add it under toolchains in hk.yaml)"))
     }
 
     pub fn ar(&self) -> Result<&str> {
         self.ar
             .as_deref()
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| HkError::new("工具链缺少 ar 配置：静态库模块需要它，请在 hk.yaml 中补充"))
+            .ok_or_else(|| HkError::new("toolchain has no ar configured; static library modules need it (add it in hk.yaml)"))
     }
 
     pub fn cxx(&self) -> Result<&str> {
         match self.cxx.as_deref().filter(|s| !s.is_empty()) {
             Some(cxx) => Ok(cxx),
             None => Err(HkError::new(
-                "工具链缺少 cxx 配置，但模块包含 C++ 源码：请在 hk.yaml 的 toolchains 中补充 cxx",
+                "toolchain has no cxx configured but the module contains C++ sources (add cxx under toolchains in hk.yaml)",
             )),
         }
     }
 
     pub fn objcopy(&self) -> Result<&str> {
         self.objcopy.as_deref().filter(|s| !s.is_empty()).ok_or_else(|| {
-            HkError::new("工具链缺少 objcopy 配置：生成 bin/hex 需要它，请在 hk.yaml 中补充")
+            HkError::new("toolchain has no objcopy configured; producing bin/hex needs it (add it in hk.yaml)")
         })
     }
 
     pub fn objdump(&self) -> Result<&str> {
         self.objdump.as_deref().filter(|s| !s.is_empty()).ok_or_else(|| {
-            HkError::new("工具链缺少 objdump 配置：生成反汇编清单需要它，请在 hk.yaml 中补充")
+            HkError::new("toolchain has no objdump configured; the disassembly listing needs it (add it in hk.yaml)")
         })
     }
 
@@ -124,11 +125,11 @@ impl Toolchain {
         self.size
             .as_deref()
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| HkError::new("工具链缺少 size 配置：size 报告需要它，请在 hk.yaml 中补充"))
+            .ok_or_else(|| HkError::new("toolchain has no size configured; the size report needs it (add it in hk.yaml)"))
     }
 }
 
-/// 交叉编译目标。
+/// A cross-compilation target.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Target {
@@ -141,26 +142,26 @@ pub struct Target {
     pub ldflags: Vec<String>,
     #[serde(default)]
     pub defines: Vec<String>,
-    /// 链接时附加的系统库（-lxxx）。
+    /// Extra system libraries for the link step (-lxxx).
     #[serde(default)]
     pub libs: Vec<String>,
     #[serde(default)]
     pub lib_dirs: Vec<String>,
-    /// -specs=xxx（nano.specs / nosys.specs / rdimon.specs ...）。
+    /// -specs= entries (nano.specs / nosys.specs / rdimon.specs ...).
     #[serde(default)]
     pub specs: Vec<String>,
     #[serde(default)]
     pub sysroot: Option<String>,
-    /// 链接脚本（-T）。
+    /// Linker script (-T).
     #[serde(default)]
     pub linker_script: Option<String>,
-    /// 入口符号。
+    /// Entry symbol.
     #[serde(default)]
     pub entry: Option<String>,
-    /// 链接后产物。
+    /// Artifacts produced after linking.
     #[serde(default)]
     pub post: Vec<PostAction>,
-    /// 传 -Wl,--print-memory-usage 并解析 FLASH/RAM 占用（GCC 10+）。
+    /// Pass -Wl,--print-memory-usage and report FLASH/RAM usage (GCC 10+).
     #[serde(default)]
     pub memory_usage: bool,
     #[serde(default)]
@@ -169,7 +170,7 @@ pub struct Target {
     pub nostartfiles: bool,
     #[serde(default)]
     pub strip: bool,
-    /// 产物能否在构建机上直接运行（MCU 目标为 false）。
+    /// Can the artifact run on the build host? False for MCU targets.
     #[serde(default = "d_true")]
     pub runnable: bool,
     #[serde(default)]
@@ -208,7 +209,7 @@ impl Target {
     }
 }
 
-/// 构建配置档（--mode）。
+/// A build profile (selected with --mode).
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Profile {
@@ -227,13 +228,13 @@ pub struct Profile {
 }
 
 impl GlobalConfig {
-    /// 内置默认配置（src/defaults/hk.yaml）。
+    /// The built-in default config (src/defaults/hk.yaml).
     pub fn builtin() -> Result<Self> {
         super::parse_yaml_str(super::DEFAULT_GLOBAL_YAML)
-            .map_err(|e| e.context("解析内置默认配置失败（这是工具自身的 bug）"))
+            .map_err(|e| e.context("failed to parse the built-in default config (this is a bug in hk)"))
     }
 
-    /// 在目录下查找工程配置文件。
+    /// Look for a project config file in this directory.
     pub fn find_file(dir: &Path) -> Option<PathBuf> {
         super::GLOBAL_FILE_NAMES
             .iter()
@@ -241,7 +242,8 @@ impl GlobalConfig {
             .find(|p| p.is_file())
     }
 
-    /// 从 start 向上查找工程根目录（含 hk.yaml / project.yaml）。
+    /// Walk upwards from `start` looking for the project root (a directory that
+    /// contains hk.yaml or project.yaml).
     pub fn find_root(start: &Path) -> Option<PathBuf> {
         let mut current = Some(start.to_path_buf());
         while let Some(dir) = current {
@@ -253,7 +255,7 @@ impl GlobalConfig {
         None
     }
 
-    /// 内置默认 + 工程文件覆盖。
+    /// Built-in defaults overridden by the project file.
     pub fn load(root: Option<&Path>) -> Result<Self> {
         let base = Self::builtin()?;
         let cfg = match root {
@@ -270,8 +272,9 @@ impl GlobalConfig {
         Ok(cfg)
     }
 
-    /// 同名条目整体替换（简单可预测）；标量以 override 为准。
-    /// 想改内置条目，请先执行 hk config -o hk.yaml 导出一份完整配置再编辑。
+    /// Entries with the same name are replaced as a whole (simple and predictable),
+    /// scalars come from the override. To tweak a built-in entry, run
+    /// `hk config -o hk.yaml` first and edit the exported copy.
     pub fn merged_with(&self, over: GlobalConfig) -> GlobalConfig {
         let mut out = self.clone();
         out.version = over.version;
@@ -294,21 +297,21 @@ impl GlobalConfig {
 
     pub fn validate(&self) -> Result<()> {
         if self.targets.is_empty() {
-            crate::hk_bail!("hk.yaml 中没有任何 targets 配置");
+            crate::hk_bail!("no targets defined in hk.yaml");
         }
         if self.profiles.is_empty() {
-            crate::hk_bail!("hk.yaml 中没有任何 profiles 配置");
+            crate::hk_bail!("no profiles defined in hk.yaml");
         }
         if !self.targets.contains_key(&self.default_target) {
             crate::hk_bail!(
-                "默认目标 {:?} 不存在，可用目标: {}",
+                "default target {:?} does not exist; available: {}",
                 self.default_target,
                 self.target_names()
             );
         }
         if !self.profiles.contains_key(&self.default_mode) {
             crate::hk_bail!(
-                "默认模式 {:?} 不存在，可用模式: {}",
+                "default mode {:?} does not exist; available: {}",
                 self.default_mode,
                 self.profile_names()
             );
@@ -316,7 +319,7 @@ impl GlobalConfig {
         for (name, target) in &self.targets {
             if !self.toolchains.contains_key(&target.toolchain) {
                 crate::hk_bail!(
-                    "目标 {name} 引用了不存在的工具链 {:?}，可用工具链: {}",
+                    "target {name} references unknown toolchain {:?}; available: {}",
                     target.toolchain,
                     self.toolchain_names()
                 );
@@ -324,7 +327,7 @@ impl GlobalConfig {
         }
         for (name, toolchain) in &self.toolchains {
             if toolchain.cc.as_deref().unwrap_or("").is_empty() {
-                crate::hk_bail!("工具链 {name} 缺少 cc 配置");
+                crate::hk_bail!("toolchain {name} has no cc configured");
             }
         }
         Ok(())
@@ -332,22 +335,22 @@ impl GlobalConfig {
 
     pub fn target(&self, name: &str) -> Result<&Target> {
         self.targets.get(name).ok_or_else(|| {
-            HkError::new(format!("未知目标 {name:?}，可用目标: {}", self.target_names()))
+            HkError::new(format!("unknown target {name:?}; available: {}", self.target_names()))
         })
     }
 
     pub fn profile(&self, name: &str) -> Result<&Profile> {
         self.profiles.get(name).ok_or_else(|| {
-            HkError::new(format!("未知模式 {name:?}，可用模式: {}", self.profile_names())).context(
-                "-m/--mode 是构建模式（hk.yaml 中 profiles 的名字）；\
-                 要构建指定模块请用 --module <模块名>",
+            HkError::new(format!("unknown mode {name:?}; available: {}", self.profile_names())).context(
+                "-m/--mode selects a build mode (a profile name in hk.yaml); \
+                 use --module NAME to build a single module",
             )
         })
     }
 
     pub fn toolchain(&self, name: &str) -> Result<&Toolchain> {
         self.toolchains.get(name).ok_or_else(|| {
-            HkError::new(format!("未知工具链 {name:?}，可用工具链: {}", self.toolchain_names()))
+            HkError::new(format!("unknown toolchain {name:?}; available: {}", self.toolchain_names()))
         })
     }
 
@@ -363,12 +366,12 @@ impl GlobalConfig {
         self.toolchains.keys().cloned().collect::<Vec<_>>().join(", ")
     }
 
-    /// 导出配置（hk init / hk config 使用）。
+    /// Serialize the config (used by hk init / hk config).
     pub fn dump(&self) -> Result<String> {
-        let header = "# 本文件由 hk 导出，可直接编辑；未列出的条目沿用内置默认值。\n\
-                      # 详见 https://github.com/  (HuiMake) —— toolchains/targets/profiles 三层结构。\n";
+        let header = "# Exported by hk; edit it freely. Entries you remove fall back to the\n\
+                      # built-in defaults. Layout: toolchains / targets / profiles.\n";
         let body = serde_yaml::to_string(self)
-            .map_err(|e| HkError::with_source("序列化配置失败", e))?;
+            .map_err(|e| HkError::with_source("failed to serialize the config", e))?;
         Ok(format!("{header}{body}"))
     }
 }
@@ -388,7 +391,7 @@ mod tests {
         assert!(cfg.targets.contains_key("cortex-m4f"));
         assert!(!cfg.target("cortex-m4f").unwrap().runnable);
         assert!(cfg.profile("mcu-release").unwrap().post.contains(&PostAction::Hex));
-        // flow 序列里的逗号会被 YAML 当成分隔符，这类参数必须加引号
+        // commas separate items inside a YAML flow sequence, so such flags must be quoted
         assert_eq!(cfg.target("cortex-m4f").unwrap().ldflags, vec!["-Wl,--gc-sections".to_string()]);
         assert_eq!(cfg.target("cortex-m4f").unwrap().specs, vec!["nano.specs".to_string(), "nosys.specs".to_string()]);
     }
@@ -410,7 +413,7 @@ mod tests {
         let err = super::super::parse_yaml_str::<GlobalConfig>("targets: {}\nwhatever: 1\n")
             .unwrap_err()
             .to_string();
-        assert!(err.contains("whatever"), "错误信息应指出未知字段: {err}");
+        assert!(err.contains("whatever"), "the error should name the unknown field: {err}");
     }
 
     #[test]

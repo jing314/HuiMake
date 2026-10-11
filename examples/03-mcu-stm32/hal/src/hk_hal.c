@@ -1,7 +1,7 @@
 #include "hk_hal.h"
 
-/* 真实工程里这里会 #include "stm32f4xx.h" 并操作寄存器。
-   示例保持零依赖，便于在没有 SDK 的机器上用 --print-plan 检查编译参数。 */
+/* A real project would #include "stm32f4xx.h" and poke registers here.
+      This example stays dependency-free so --print-plan can check the flags anywhere. */
 
 static unsigned int s_tick;
 

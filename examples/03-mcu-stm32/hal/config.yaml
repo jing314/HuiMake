@@ -3,9 +3,9 @@ kind: static-lib
 std: c11
 
 include: [include]
-include_dirs: [../vendor/cmsis]        # 真正的项目里指向厂商 CMSIS
+include_dirs: [../vendor/cmsis]        # in a real project this points at the vendor CMSIS
 
 public:
-  # 被 bsp / firmware 依赖时自动传播，无需在每个模块里重复声明
+  # Propagated automatically to bsp / firmware; no need to repeat it per module
   include_dirs: [../vendor/cmsis]
   defines: [STM32F407xx, USE_HAL_DRIVER]

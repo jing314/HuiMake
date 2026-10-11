@@ -1,6 +1,6 @@
 #include "hk_bsp.h"
 
-/* 裸机主循环：不会返回 */
+/* Bare-metal main loop: never returns */
 int main(void)
 {
     bsp_init();

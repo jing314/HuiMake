@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# 逐个验证 examples/ 下的示范工程，并打印 PASS/FAIL 汇总表。
+# Verify every example project under examples/ and print a PASS/FAIL table.
 #
-#   01-single-module / 02-multi-module : 真实编译并运行（需要本机有 gcc）
-#   03-mcu-stm32   / 04-mcu-gd32       : 执行 --print-plan 并检查关键交叉编译参数（不需要交叉工具链）
+#   01-single-module / 02-multi-module : really compile and run (needs gcc)
+#   03-mcu-stm32   / 04-mcu-gd32       : run --print-plan and check the cross flags (no toolchain)
 #
-# 每个示例都会复制到临时目录再构建，不会污染 examples/。
+# Every example is copied to a temp directory first, so examples/ stays clean.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 root="$PWD"
@@ -17,7 +17,7 @@ if [ -z "$hk" ]; then
   elif [ -x "$root/target/release/hk" ]; then
     hk="$root/target/release/hk"
   else
-    echo "未找到 hk，先执行 cargo build ..."
+    echo "hk not found, running cargo build ..."
     cargo build >/dev/null
     hk="$root/target/debug/hk"
   fi
@@ -27,7 +27,7 @@ has_gcc=0
 if command -v gcc >/dev/null 2>&1; then has_gcc=1; fi
 
 echo "hk  : $hk"
-if [ "$has_gcc" -eq 1 ]; then echo "gcc : 已找到"; else echo "gcc : 未找到（本机示例会被跳过）"; fi
+if [ "$has_gcc" -eq 1 ]; then echo "gcc : found"; else echo "gcc : not found (host examples will be skipped)"; fi
 echo
 
 names=(01-single-module 02-multi-module 03-mcu-stm32 04-mcu-gd32)
@@ -40,7 +40,7 @@ argss=(
   "build -t gd32f303 -m gd32-release --print-plan"
 )
 expectss=(
-  "构建完成"
+  "Build finished"
   "libcore.a|libsensor.a"
   "arm-none-eabi-gcc|-mcpu=cortex-m4|-specs=nano.specs|STM32F407VGTx_FLASH.ld|-Wl,--print-memory-usage|startup_stm32f407|libbsp.a|libhal.a|firmware.elf|arm-none-eabi-objcopy -O binary|arm-none-eabi-objcopy -O ihex|arm-none-eabi-size"
   "arm-none-eabi-gcc|-mcpu=cortex-m4|-DGD32F30X_HD|-O2|GD32F303CCT6_FLASH.ld|startup_gd32f303|libgd32_driver.a|firmware.elf|arm-none-eabi-objcopy -O binary"
@@ -49,7 +49,7 @@ runexes=(01-single-module/hello/build/bin/hello 02-multi-module/app/build/bin/ap
 runexpects=("HELLO FROM HK" "sensor=43 core=2 sqrt=4" "" "")
 
 fail=0
-printf "%-18s %-6s %-6s %s\n" "示例" "模式" "结果" "说明"
+printf "%-18s %-6s %-6s %s\n" "example" "mode" "result" "note"
 
 for i in 0 1 2 3; do
   name="${names[$i]}"
@@ -61,7 +61,7 @@ for i in 0 1 2 3; do
   runexpect="${runexpects[$i]}"
 
   if [ "$mode" = "run" ] && [ "$has_gcc" -eq 0 ]; then
-    printf "%-18s %-6s %-6s %s\n" "$name" "$mode" "SKIP" "本机没有 gcc"
+    printf "%-18s %-6s %-6s %s\n" "$name" "$mode" "SKIP" "gcc is not available"
     continue
   fi
 
@@ -75,7 +75,7 @@ for i in 0 1 2 3; do
   note=""
   status="FAIL"
   if [ "$code" -ne 0 ]; then
-    note="构建失败，退出码 $code"
+    note="build failed with exit code $code"
   else
     missing=""
     IFS='|' read -r -a needles <<< "$expects"
@@ -86,32 +86,32 @@ for i in 0 1 2 3; do
       esac
     done
     if [ -n "$missing" ]; then
-      note="缺少标记:$missing"
+      note="missing markers:$missing"
     elif [ -n "$runexpect" ]; then
       exe="$work/$runexe"
       if [ ! -x "$exe" ]; then
-        note="没有找到可执行产物 $runexe"
+        note="no executable artifact found: $runexe"
       elif programOut="$("$exe" 2>&1)" && case "$programOut" in *"$runexpect"*) true ;; *) false ;; esac; then
         status="PASS"
-        note="构建 + 运行通过"
+        note="built and ran successfully"
       else
-        note="运行输出不符: $programOut"
+        note="unexpected program output: $programOut"
       fi
     else
       status="PASS"
-      note="参数检查通过"
+      note="flag checks passed"
     fi
   fi
 
   printf "%-18s %-6s %-6s %s\n" "$name" "$mode" "$status" "$note"
   if [ "$status" = "FAIL" ]; then fail=$((fail + 1)); fi
 
-  if [ "${KEEP:-0}" != "1" ]; then rm -rf "$tmp"; else echo "  （保留临时目录 $tmp）"; fi
+  if [ "${KEEP:-0}" != "1" ]; then rm -rf "$tmp"; else echo "  (keeping temp directory $tmp)"; fi
 done
 
 echo
 if [ "$fail" -gt 0 ]; then
-  echo "有 $fail 个示范工程验证失败"
+  echo "$fail example(s) failed"
   exit 1
 fi
-echo "全部示范工程验证通过"
+echo "All example projects verified"

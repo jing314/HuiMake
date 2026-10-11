@@ -1,4 +1,4 @@
-# 可执行文件：链接 sensor（静态库）与系统库 libm
+# Executable: links sensor (static library) and the system library libm
 name: app
 kind: executable
 std: c11
@@ -10,6 +10,6 @@ deps:
   system: [m]
 
 targets:
-  # 只有本机目标需要可执行，示例里演示"按目标覆盖"
+  # Only the host target needs an executable; demonstrates per-target overrides
   host:
     defines: [HOST_BUILD=1]

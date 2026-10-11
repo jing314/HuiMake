@@ -41,14 +41,14 @@ hk build -t stm32f407 -m mcu-release
 输出形如：
 
 ```
-==> hal: 编译 1 个源文件
-==> bsp: 编译 1 个源文件
-==> firmware: 编译 2 个源文件
-==> firmware: 链接 -> .../firmware.elf
-firmware 内存占用:
+==> hal: compiling 1 file(s)
+==> bsp: compiling 1 file(s)
+==> firmware: compiling 2 file(s)
+==> firmware: link -> .../firmware.elf
+firmware memory usage:
      FLASH       12288 B / 1024 KB  (1.17%)
        RAM        3200 B / 128 KB  (2.44%)
-firmware 段大小 (text / data / bss / dec / hex):
+firmware section sizes (text/data/bss/dec/hex):
    text    data     bss     dec     hex filename
    9216     256     512    9984    2700 firmware.elf
 ```

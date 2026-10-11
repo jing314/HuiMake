@@ -1,13 +1,14 @@
-//! 轻量 glob（避免引入额外依赖），支持 * ? ** 与 [a-z] 字符类。
+//! Small glob matcher (no extra dependency): supports * ? ** and [a-z] classes.
 //!
-//! 约定：模式与候选路径都使用 / 作为分隔符，且都是相对于模块根目录的路径。
-//!   *      匹配任意字符，但不跨 /
-//!   **     跨目录匹配任意字符
-//!   **/    匹配零个或多个目录层级
-//!   ?      匹配单个非 / 字符
-//!   [a-z]  字符类，[!a-z] / [^a-z] 取反
+//! Both the pattern and the candidate path use / as separator and are relative
+//! to the module directory.
+//!   *      any characters except /
+//!   **     any characters, crossing directory boundaries
+//!   **/    zero or more directory levels
+//!   ?      a single character other than /
+//!   [a-z]  character class; [!a-z] or [^a-z] negates it
 
-/// 统一分隔符：Windows 路径也能与 / 模式匹配。
+/// Normalize separators so Windows paths match / patterns.
 pub fn normalize_slashes(input: &str) -> String {
     input.replace('\\', "/")
 }

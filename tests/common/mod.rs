@@ -1,4 +1,4 @@
-//! 集成测试共用的辅助函数（tests/common/mod.rs 不会被当成独立测试目标）。
+//! Helpers shared by the integration tests (tests/common/mod.rs is not a test target).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -23,7 +23,7 @@ pub fn has_tool(tool: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// 本机是否有可用的 C 工具链（端到端用例的前置条件）。
+/// Is a usable C toolchain available on this host? (precondition for e2e tests)
 pub fn gcc_available() -> bool {
     has_tool("gcc") && has_tool("ar")
 }
@@ -35,7 +35,7 @@ impl TempDir {
         let id = COUNTER.fetch_add(1, Ordering::SeqCst);
         let dir = std::env::temp_dir().join(format!("hk-e2e-{label}-{}-{id}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).expect("创建临时目录");
+        fs::create_dir_all(&dir).expect("create temp dir");
         TempDir(dir)
     }
 
@@ -52,21 +52,21 @@ impl Drop for TempDir {
 
 pub fn write(path: &Path, content: &str) {
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).expect("创建目录");
+        fs::create_dir_all(parent).expect("create directory");
     }
-    fs::write(path, content).expect("写入文件");
+    fs::write(path, content).expect("write file");
 }
 
 pub fn read(path: &Path) -> String {
-    fs::read_to_string(path).unwrap_or_else(|e| panic!("读取 {} 失败: {e}", path.display()))
+    fs::read_to_string(path).unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()))
 }
 
-/// 递归复制目录树（跳过构建产物），用于在临时目录里构建示范工程，
-/// 避免污染仓库工作区。
+/// Copy a directory tree (skipping build output) so an example can be built in a
+/// temp directory without polluting the repository.
 pub fn copy_tree(src: &Path, dst: &Path) {
-    fs::create_dir_all(dst).expect("创建目标目录");
-    for entry in fs::read_dir(src).unwrap_or_else(|e| panic!("读取 {} 失败: {e}", src.display())) {
-        let path = entry.expect("目录项").path();
+    fs::create_dir_all(dst).expect("create destination directory");
+    for entry in fs::read_dir(src).unwrap_or_else(|e| panic!("failed to read {}: {e}", src.display())) {
+        let path = entry.expect("directory entry").path();
         let name = path.file_name().unwrap().to_string_lossy().to_string();
         if name == "build" || name == "target" || name == ".git" {
             continue;
@@ -76,7 +76,7 @@ pub fn copy_tree(src: &Path, dst: &Path) {
             copy_tree(&path, &target);
         } else {
             fs::copy(&path, &target)
-                .unwrap_or_else(|e| panic!("复制 {} 失败: {e}", path.display()));
+                .unwrap_or_else(|e| panic!("failed to copy {}: {e}", path.display()));
         }
     }
 }
@@ -93,17 +93,17 @@ impl Run {
     }
 
     pub fn assert_ok(&self, what: &str) -> &Self {
-        assert!(self.ok, "{what} 应成功，实际输出:\n{}", self.all());
+        assert!(self.ok, "{what} should succeed; output:\n{}", self.all());
         self
     }
 
     pub fn assert_failed(&self, what: &str) -> &Self {
-        assert!(!self.ok, "{what} 应失败，实际输出:\n{}", self.all());
+        assert!(!self.ok, "{what} should fail; output:\n{}", self.all());
         self
     }
 
     pub fn assert_contains(&self, needle: &str) -> &Self {
-        assert!(self.all().contains(needle), "输出中缺少 {needle:?}:\n{}", self.all());
+        assert!(self.all().contains(needle), "output is missing {needle:?}:\n{}", self.all());
         self
     }
 }
@@ -112,14 +112,14 @@ pub fn run_hk(dir: &Path, args: &[&str]) -> Run {
     run_hk_with_env(dir, args, &[])
 }
 
-/// 带额外环境变量运行 hk（用于模拟 TEMP 不可用等环境）。
+/// Run hk with extra environment variables (used to simulate e.g. an unusable TEMP).
 pub fn run_hk_with_env(dir: &Path, args: &[&str], envs: &[(&str, &str)]) -> Run {
     let mut command = Command::new(hk_bin());
     command.args(args).current_dir(dir);
     for (key, value) in envs {
         command.env(key, value);
     }
-    let out = command.output().expect("执行 hk 失败");
+    let out = command.output().expect("failed to run hk");
     Run {
         ok: out.status.success(),
         stdout: String::from_utf8_lossy(&out.stdout).to_string(),

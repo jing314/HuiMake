@@ -1,12 +1,12 @@
-//! HuiMake (hk) —— YAML 驱动的 C/C++ 构建工具。
+//! HuiMake (hk) — a YAML-driven C/C++ build tool.
 
 mod app;
 mod build;
-#[cfg(test)]
-mod example_tests;
 mod cli;
 mod config;
 mod error;
+#[cfg(test)]
+mod example_tests;
 mod glob;
 mod log;
 mod project;

@@ -1,4 +1,4 @@
-# 厂商驱动封装层：对外传播 GD32 器件宏与固件库头文件目录
+# Vendor driver wrapper: exports the GD32 part macro and the firmware library headers
 name: gd32_driver
 kind: static-lib
 std: c11
@@ -8,7 +8,7 @@ include_dirs: [../vendor/gd32]
 
 compile:
   per_file:
-    # 时序敏感的代码单独提高优化等级（演示逐文件参数）
+    # Timing-sensitive code gets a higher optimisation level (per-file flags)
     src/gd32_timing.c: ["-O2"]
 
 public:

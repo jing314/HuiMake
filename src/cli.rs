@@ -1,4 +1,4 @@
-//! 命令行定义。
+//! Command line definition.
 
 use crate::config::Kind;
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -9,59 +9,59 @@ use std::path::PathBuf;
     name = "hk",
     version,
     author = "hui",
-    about = "HuiMake: 用 YAML 替代 CMake/Makefile 的 C/C++ 构建工具，支持交叉编译与 MCU 目标"
+    about = "HuiMake: a YAML-driven C/C++ build tool with cross-compilation and MCU support"
 )]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Command>,
-    /// 提高日志详细程度（-v 显示命令行，-vv 显示全部细节）
+    /// Increase log verbosity: -v shows per-step progress and every command, -vv shows all details
     #[arg(short, long, action = clap::ArgAction::Count, global = true)]
     pub verbose: u8,
-    /// 只输出错误
+    /// Only print errors
     #[arg(short, long, global = true)]
     pub quiet: bool,
 }
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// 构建当前模块或整个工程
+    /// Build the current module or the whole project
     Build(BuildArgs),
-    /// 构建并运行（仅限可在本机运行的目标）
+    /// Build and run (targets that cannot run on this host are refused)
     Run(RunArgs),
-    /// 清理构建产物
+    /// Remove build artifacts
     Clean(CleanArgs),
-    /// 创建新的模块目录
+    /// Create a new module with the standard directory layout
     New(NewArgs),
-    /// 在工程根生成 hk.yaml（导出内置默认配置）
+    /// Write hk.yaml (the built-in defaults) into the project root
     Init(InitArgs),
-    /// 打印当前生效的配置
+    /// Print the effective configuration
     Config(ConfigArgs),
 }
 
 #[derive(Debug, Args, Clone, Default)]
 pub struct BuildArgs {
-    /// 构建模式（hk.yaml 中 profiles 的名字，例如 debug / release / mcu-release）
+    /// Build mode: the name of a profile in hk.yaml (debug / release / mcu-release ...)
     #[arg(short, long)]
     pub mode: Option<String>,
-    /// 目标（hk.yaml 中 targets 的名字，例如 host / cortex-m4f / riscv32-unknown-elf）
+    /// Target: the name of a target in hk.yaml (host / cortex-m4f / gd32f303 ...)
     #[arg(short, long)]
     pub target: Option<String>,
-    /// 并行任务数，0 表示自动
+    /// Number of parallel jobs, 0 = auto
     #[arg(short, long)]
     pub jobs: Option<usize>,
-    /// 只构建指定模块及其依赖
+    /// Only build this module and its dependencies
     #[arg(long, value_name = "MODULE")]
     pub module: Option<String>,
-    /// 只打印将执行的命令，不实际编译
+    /// Print the commands instead of executing them
     #[arg(long)]
     pub print_plan: bool,
-    /// 把构建计划写入文件（配合 --print-plan）
+    /// Write the build plan to a file (use together with --print-plan)
     #[arg(short, long, value_name = "FILE")]
     pub output: Option<PathBuf>,
-    /// 忽略增量信息，全量重建
+    /// Ignore incremental state and rebuild everything
     #[arg(long)]
     pub force: bool,
-    /// 某个模块失败后继续构建其他独立模块
+    /// Keep building independent modules after a failure
     #[arg(short = 'k', long)]
     pub keep_going: bool,
 }
@@ -70,23 +70,23 @@ pub struct BuildArgs {
 pub struct RunArgs {
     #[command(flatten)]
     pub build: BuildArgs,
-    /// 只运行指定的模块或可执行文件
+    /// Only run this module or executable
     #[arg(long, value_name = "NAME")]
     pub bin: Option<String>,
-    /// 传给目标程序的参数（需写在 -- 之后）
+    /// Arguments passed to the program (must follow --)
     #[arg(last = true, value_name = "ARGS")]
     pub args: Vec<String>,
 }
 
 #[derive(Debug, Args)]
 pub struct CleanArgs {
-    /// 只清理指定模块
+    /// Only clean this module
     #[arg(long, value_name = "MODULE")]
     pub module: Option<String>,
-    /// 清理工程内所有模块（忽略当前所在模块）
+    /// Clean every module in the project (ignore the current module)
     #[arg(long)]
     pub all: bool,
-    /// 只列出将要删除的目录
+    /// Only list the directories that would be removed
     #[arg(long)]
     pub dry_run: bool,
 }
@@ -114,38 +114,38 @@ impl From<KindArg> for Kind {
 
 #[derive(Debug, Args)]
 pub struct NewArgs {
-    /// 模块名（同时作为目录名）
+    /// Module name (also used as the directory name)
     pub name: String,
-    /// 产物类型
+    /// Kind of artifact the module produces
     #[arg(short, long, value_enum, default_value_t = KindArg::Executable)]
     pub kind: KindArg,
-    /// 在指定目录下创建（默认当前目录）
+    /// Create the module inside this directory (defaults to the current one)
     #[arg(short, long, value_name = "DIR")]
     pub dir: Option<PathBuf>,
-    /// 覆盖已存在的目录
+    /// Overwrite the template files of an existing directory
     #[arg(long)]
     pub force: bool,
 }
 
 #[derive(Debug, Args)]
 pub struct InitArgs {
-    /// 覆盖已存在的 hk.yaml
+    /// Overwrite an existing hk.yaml
     #[arg(long)]
     pub force: bool,
-    /// 输出文件（默认 hk.yaml）
+    /// Output file (defaults to hk.yaml)
     #[arg(short, long, value_name = "FILE")]
     pub output: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
 pub struct ConfigArgs {
-    /// 写出到文件（默认打印到 stdout）
+    /// Write to a file instead of stdout
     #[arg(short, long, value_name = "FILE")]
     pub output: Option<PathBuf>,
-    /// 只查看某个目标解析后的结果
+    /// Show the resolved settings of one target
     #[arg(short, long, value_name = "TARGET")]
     pub target: Option<String>,
-    /// 只查看某个模式解析后的结果
+    /// Show the resolved settings of one mode (profile)
     #[arg(short, long, value_name = "MODE")]
     pub mode: Option<String>,
 }

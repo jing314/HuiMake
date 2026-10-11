@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# 运行 HuiMake 的全部测试：单元测试 + 端到端测试 + 示范工程测试。
+# Run all HuiMake tests: unit tests + end-to-end tests + example-project tests.
 #
-# 用法：
-#   bash scripts/run-tests.sh                  # 全部测试
-#   bash scripts/run-tests.sh example_tests     # 只跑名字含该字符串的用例
-#   bash scripts/run-tests.sh --unit-only       # 只跑二进制内的单元测试
-#   bash scripts/run-tests.sh --skip-clippy     # 跳过 clippy
+# Usage:
+#   bash scripts/run-tests.sh                  # everything
+#   bash scripts/run-tests.sh example_tests     # only tests whose name matches
+#   bash scripts/run-tests.sh --unit-only       # only the unit tests inside the binary
+#   bash scripts/run-tests.sh --skip-clippy     # skip clippy
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -25,13 +25,13 @@ for arg in "$@"; do
   esac
 done
 
-echo "== 环境 =="
+echo "== environment =="
 cargo --version
 rustc --version
 if command -v gcc >/dev/null 2>&1; then
   echo "gcc: $(gcc --version | head -n1)"
 else
-  echo "gcc: 未找到（依赖 gcc 的端到端用例会被跳过）"
+  echo "gcc: not found (tests that need it will be skipped)"
 fi
 
 if [ "$skip_clippy" -eq 0 ]; then
@@ -53,4 +53,4 @@ echo "cargo ${args[*]}"
 cargo "${args[@]}"
 
 echo
-echo "全部测试通过"
+echo "All tests passed"

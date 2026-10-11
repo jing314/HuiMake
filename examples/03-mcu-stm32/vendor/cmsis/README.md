@@ -1,6 +1,6 @@
-# 厂商头文件占位目录
+# Vendor header placeholder directory
 
-把 ST 的 CMSIS / HAL 头文件放到这里（或把 `hal/config.yaml` 里的
-`include_dirs` 改成你的 SDK 路径）。
+Put the ST CMSIS / HAL headers here (or point the include_dirs of hal/config.yaml
+at your SDK path).
 
-示例的 hal/bsp 只用纯 C 实现，因此**不依赖**这个目录也能正常构建。
+The example hal/bsp are plain C, so the build works **without** this directory.

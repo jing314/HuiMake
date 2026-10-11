@@ -1,10 +1,11 @@
-//! 针对 examples/ 下示范工程的单元测试。
+//! Unit tests driven by the projects under examples/.
 //!
-//! 纯 Rust、无需 gcc 或交叉工具链：直接把示范工程当作输入，
-//! 解析配置 → 发现模块 → 依赖拓扑 → 对「每个目标 × 每个配置档」生成构建计划，
-//! 并断言关键编译/链接/后处理参数。
+//! Pure Rust, no gcc or cross toolchain needed: the example projects are the input.
+//! Each one is parsed, its modules discovered and ordered, and a build plan is created
+//! for every target x profile combination, asserting the key compile/link/post flags.
 //!
-//! 覆盖：单模块、多模块（静态库/动态库/可执行）、MCU（STM32F407、GD32F303）。
+//! Coverage: single module, multi module (static/shared/executable) and MCU
+//! (STM32F407, GD32F303).
 
 use crate::build::steps::{self, ModulePlan, PlanCtx, Step, StepKind};
 use crate::config::{Config, GlobalConfig, MODULE_FILE_NAME};
@@ -16,22 +17,22 @@ fn examples_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("examples")
 }
 
-/// 含 hk.yaml 的示范工程（多模块 / MCU）。
+/// Example projects that carry an hk.yaml (multi-module / MCU).
 fn project_examples() -> Vec<PathBuf> {
     let root = examples_dir();
     let mut out = Vec::new();
-    for entry in fs::read_dir(&root).unwrap_or_else(|e| panic!("读取 {} 失败: {e}", root.display())) {
-        let path = entry.expect("目录项").path();
+    for entry in fs::read_dir(&root).unwrap_or_else(|e| panic!("failed to read {}: {e}", root.display())) {
+        let path = entry.expect("directory entry").path();
         if path.is_dir() && path.join("hk.yaml").is_file() {
             out.push(path);
         }
     }
     out.sort();
-    assert!(out.len() >= 3, "至少应有 3 个含 hk.yaml 的示范工程: {out:?}");
+    assert!(out.len() >= 3, "expected at least 3 examples with an hk.yaml: {out:?}");
     out
 }
 
-/// 全部示范工程根目录（单模块示例没有 hk.yaml，单独补上）。
+/// All example roots (the single-module example has no hk.yaml, so add it explicitly).
 fn all_example_roots() -> Vec<PathBuf> {
     let mut out = vec![examples_dir().join("01-single-module")];
     out.extend(project_examples());
@@ -39,8 +40,8 @@ fn all_example_roots() -> Vec<PathBuf> {
 }
 
 fn collect_config_files(dir: &Path, out: &mut Vec<PathBuf>) {
-    for entry in fs::read_dir(dir).unwrap_or_else(|e| panic!("读取 {} 失败: {e}", dir.display())) {
-        let path = entry.expect("目录项").path();
+    for entry in fs::read_dir(dir).unwrap_or_else(|e| panic!("failed to read {}: {e}", dir.display())) {
+        let path = entry.expect("directory entry").path();
         if path.is_dir() {
             let name = path.file_name().unwrap().to_string_lossy().to_string();
             if name == "build" || name.starts_with('.') {
@@ -60,9 +61,9 @@ fn plan_for<'a>(
     module: &str,
     force: bool,
 ) -> ModulePlan {
-    let target = project.global.target(target_name).expect("目标存在");
-    let profile = project.global.profile(profile_name).expect("配置档存在");
-    let toolchain = project.global.toolchain(&target.toolchain).expect("工具链存在");
+    let target = project.global.target(target_name).expect("target exists");
+    let profile = project.global.profile(profile_name).expect("profile exists");
+    let toolchain = project.global.toolchain(&target.toolchain).expect("toolchain exists");
     let naming = target.naming(toolchain);
     let ctx = PlanCtx {
         project,
@@ -77,7 +78,7 @@ fn plan_for<'a>(
         strip: profile.strip || target.strip,
     };
     steps::plan_module(&ctx, module)
-        .unwrap_or_else(|e| panic!("规划 {}/{target_name}/{profile_name}/{module} 失败: {e}", project.root.display()))
+        .unwrap_or_else(|e| panic!("failed to plan {}/{target_name}/{profile_name}/{module}: {e}", project.root.display()))
 }
 
 fn args_of(step: &Step) -> Vec<String> {
@@ -91,26 +92,26 @@ fn joined(step: &Step) -> String {
 fn step_in(plan: &ModulePlan, phase: usize) -> &Step {
     plan.phases[phase]
         .first()
-        .unwrap_or_else(|| panic!("模块 {} 的第 {phase} 阶段没有步骤", plan.module))
+        .unwrap_or_else(|| panic!("module {} has no step in phase {phase}", plan.module))
 }
 
 fn contains_all(text: &str, needles: &[&str]) {
     for needle in needles {
-        assert!(text.contains(needle), "缺少 {needle:?}:\n{text}");
+        assert!(text.contains(needle), "missing {needle:?}:\n{text}");
     }
 }
 
 // ---------------------------------------------------------------------------
-// 配置与工程结构
+// configuration and project structure
 // ---------------------------------------------------------------------------
 
 #[test]
 fn every_example_global_config_is_valid() {
     for dir in project_examples() {
         let cfg = GlobalConfig::load(Some(&dir))
-            .unwrap_or_else(|e| panic!("加载 {} 的 hk.yaml 失败: {e}", dir.display()));
-        assert!(!cfg.targets.is_empty(), "{} 没有目标", dir.display());
-        assert!(!cfg.profiles.is_empty(), "{} 没有配置档", dir.display());
+            .unwrap_or_else(|e| panic!("failed to load the hk.yaml of {}: {e}", dir.display()));
+        assert!(!cfg.targets.is_empty(), "{} defines no targets", dir.display());
+        assert!(!cfg.profiles.is_empty(), "{} defines no profiles", dir.display());
         assert!(cfg.targets.contains_key(&cfg.default_target));
         assert!(cfg.profiles.contains_key(&cfg.default_mode));
     }
@@ -122,24 +123,24 @@ fn every_example_module_config_parses() {
     for root in all_example_roots() {
         let mut files = Vec::new();
         collect_config_files(&root, &mut files);
-        assert!(!files.is_empty(), "{} 下没有找到 config.yaml", root.display());
+        assert!(!files.is_empty(), "no config.yaml found under {}", root.display());
         for file in files {
             let text = file.display().to_string();
-            Config::load_file(&file).unwrap_or_else(|e| panic!("解析 {text} 失败: {e}"));
+            Config::load_file(&file).unwrap_or_else(|e| panic!("failed to parse {text}: {e}"));
             count += 1;
         }
     }
-    assert!(count >= 11, "示范工程的模块配置应覆盖到多模块与 MCU 场景，实际 {count} 个");
+    assert!(count >= 11, "the examples must cover multi-module and MCU setups, found {count}");
 }
 
 #[test]
 fn every_example_project_resolves_dependencies_and_topology() {
     for root in all_example_roots() {
         let project = Project::discover(&root)
-            .unwrap_or_else(|e| panic!("发现 {} 失败: {e}", root.display()));
-        assert!(!project.modules.is_empty(), "{} 没有模块", root.display());
+            .unwrap_or_else(|e| panic!("failed to discover {}: {e}", root.display()));
+        assert!(!project.modules.is_empty(), "{} has no modules", root.display());
         let levels = project.topo_levels()
-            .unwrap_or_else(|e| panic!("{} 依赖拓扑失败: {e}", root.display()));
+            .unwrap_or_else(|e| panic!("dependency ordering of {} failed: {e}", root.display()));
         let total: usize = levels.iter().map(|l| l.len()).sum();
         assert_eq!(total, project.modules.len());
     }
@@ -158,28 +159,29 @@ fn every_example_module_plans_for_every_target_and_profile() {
                 for module in &modules {
                     let plan = plan_for(&project, target, profile, module, true);
                     combos += 1;
-                    // header-only 之外的模块都应产出可执行/归档计划或明确无需重建
+                    // every module except header-only must produce a plan or artifacts
                     if module != "unused" {
                         assert!(
                             !plan.artifacts.is_empty() || plan.kind == crate::config::Kind::HeaderOnly,
-                            "{module} 在 {target}/{profile} 下没有产物"
+                            "{module} produces nothing for {target}/{profile}"
                         );
                     }
                 }
             }
         }
     }
-    assert!(combos >= 30, "目标×配置档×模块的组合过少: {combos}");
+    assert!(combos >= 30, "too few target x profile x module combinations: {combos}");
 }
 
 // ---------------------------------------------------------------------------
-// 01 单模块
+// 01 single module
 // ---------------------------------------------------------------------------
 
 #[test]
 fn examples_root_is_a_container_not_a_project() {
-    // 直接在上层目录运行 hk 时，只应看到不隶属于任何子工程的模块，
-    // 不能把 02/03/04 三个子工程的模块混成一个工程（否则 bsp/firmware 会撞名）。
+    // Running hk in the parent directory must only see modules that belong to no nested
+    // project; the modules of 02/03/04 may not be merged into one project (bsp/firmware
+    // would collide).
     let project = Project::discover(&examples_dir()).unwrap();
     assert_eq!(
         project.modules.keys().cloned().collect::<Vec<_>>(),
@@ -191,16 +193,16 @@ fn examples_root_is_a_container_not_a_project() {
 fn single_module_example_uses_default_sources_and_includes() {
     let root = examples_dir().join("01-single-module");
     let project = Project::discover(&root).unwrap();
-    assert_eq!(project.modules.len(), 1, "单模块示例只应有一个模块");
+    assert_eq!(project.modules.len(), 1, "the single-module example has exactly one module");
 
     let plan = plan_for(&project, "host", "debug", "hello", true);
     assert_eq!(plan.kind, crate::config::Kind::Executable);
-    assert_eq!(plan.phases[0].len(), 2, "src/greet.c 与 bin/main.c 都应参与编译");
+    assert_eq!(plan.phases[0].len(), 2, "both src/greet.c and bin/main.c must be compiled");
     let sources = plan.phases[0]
         .iter()
         .map(|s| {
             let args = args_of(s);
-            let index = args.iter().position(|a| a == "-c").expect("编译命令应含 -c");
+            let index = args.iter().position(|a| a == "-c").expect("a compile command must contain -c");
             args[index + 1].clone()
         })
         .collect::<Vec<_>>()
@@ -215,7 +217,7 @@ fn single_module_example_uses_default_sources_and_includes() {
 }
 
 // ---------------------------------------------------------------------------
-// 02 多模块
+// 02 multi module
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -231,13 +233,13 @@ fn build_steps_point_compiler_temp_dir_into_the_build_directory() {
         .iter()
         .find(|(key, _)| key == "TEMP")
         .map(|(_, value)| value.clone())
-        .expect("编译命令应设置 TEMP");
+        .expect("a compile command must set TEMP");
     let normalized = temp.replace('\\', "/");
-    assert!(normalized.ends_with("build/tmp"), "TEMP 应指向构建目录下的 tmp: {temp}");
+    assert!(normalized.ends_with("build/tmp"), "TEMP must point at <build>/tmp: {temp}");
     for key in ["TMP", "TMPDIR"] {
         assert!(
             step.cmd.envs.iter().any(|(k, v)| k == key && v == &temp),
-            "应同时设置 {key}"
+            "{key} must be set as well"
         );
     }
     assert_eq!(step.temp_dir.as_deref(), Some(std::path::Path::new(&temp)));
@@ -253,7 +255,7 @@ fn multi_module_example_builds_three_artifact_kinds() {
         vec!["core".to_string(), "sensor".to_string()]
     );
 
-    // core：静态库
+    // core: static library
     let core = plan_for(&project, "host", "debug", "core", true);
     assert_eq!(core.kind, crate::config::Kind::StaticLib);
     let archive = step_in(&core, 1);
@@ -262,7 +264,7 @@ fn multi_module_example_builds_three_artifact_kinds() {
     assert!(archive.cmd.args.iter().any(|a| a.to_string_lossy() == "rcs"));
     assert!(core.artifacts[0].to_string_lossy().ends_with("libcore.a"));
 
-    // motion：动态库
+    // motion: shared library
     let motion = plan_for(&project, "host", "debug", "motion", true);
     assert_eq!(motion.kind, crate::config::Kind::SharedLib);
     let shared = joined(step_in(&motion, 1));
@@ -274,17 +276,17 @@ fn multi_module_example_builds_three_artifact_kinds() {
         motion.artifacts[0]
     );
 
-    // app：链接两个静态库（依赖者在前）+ 系统库
+    // app: links two static libraries (users first) plus a system library
     let app = plan_for(&project, "host", "debug", "app", true);
     let link = joined(step_in(&app, 1));
-    let sensor_pos = link.find("libsensor.a").expect("应链接 libsensor.a");
-    let core_pos = link.find("libcore.a").expect("应链接 libcore.a");
-    assert!(sensor_pos < core_pos, "依赖者应排在被依赖者之前:\n{link}");
+    let sensor_pos = link.find("libsensor.a").expect("libsensor.a must be linked");
+    let core_pos = link.find("libcore.a").expect("libcore.a must be linked");
+    assert!(sensor_pos < core_pos, "users must come before providers:\n{link}");
     assert!(link.contains("-lm"), "{link}");
     let app_compile = joined(step_in(&app, 0));
     assert!(
         app_compile.contains("-DCORE_VERSION=2"),
-        "core 的 public.defines 应传播到 app 的编译参数:\n{app_compile}"
+        "core public.defines must reach the compile flags of app:\n{app_compile}"
     );
 }
 
@@ -297,7 +299,7 @@ fn stm32_example_emits_expected_cross_commands() {
     let root = examples_dir().join("03-mcu-stm32");
     let project = Project::discover(&root).unwrap();
     let target = project.global.target("stm32f407").unwrap();
-    assert!(!target.runnable, "MCU 产物不应在本机运行");
+    assert!(!target.runnable, "an MCU artifact must not run on this host");
     assert!(target.memory_usage);
 
     let plan = plan_for(&project, "stm32f407", "mcu-release", "firmware", true);
@@ -342,9 +344,9 @@ fn stm32_example_emits_expected_cross_commands() {
         ],
     );
     assert!(link.find("libbsp.a").unwrap() < link.find("libhal.a").unwrap(), "{link}");
-    assert!(link.contains("main.o"), "firmware 的 main.c 应对应 main.o:\n{link}");
+    assert!(link.contains("main.o"), "firmware main.c must show up as main.o:\n{link}");
 
-    // 链接后处理：bin / hex / size
+    // post-link steps: bin / hex / size
     let post = &plan.phases[2];
     let names: Vec<&str> = post.iter().map(|s| s.cmd.program.as_str()).collect();
     assert!(names.contains(&"arm-none-eabi-objcopy"), "{names:?}");
@@ -365,7 +367,7 @@ fn gd32_example_emits_expected_cross_commands() {
 
     let plan = plan_for(&project, "gd32f303", "gd32-release", "firmware", true);
 
-    // 编译参数：架构 + 优化档 + 固件库宏
+    // compile flags: architecture, optimisation level, firmware library macros
     let compile = joined(step_in(&plan, 0));
     contains_all(
         &compile,
@@ -381,7 +383,7 @@ fn gd32_example_emits_expected_cross_commands() {
         ],
     );
 
-    // 链接参数：架构参数 + 链接脚本 + 依赖库 + 内存占用报告
+    // link flags: architecture, linker script, dependencies, memory usage report
     let link = joined(step_in(&plan, 1));
     contains_all(
         &link,
@@ -398,20 +400,20 @@ fn gd32_example_emits_expected_cross_commands() {
         ],
     );
 
-    // 逐文件优化等级：在 gd32-debug 档下只有 gd32_timing.c 带额外的 -O2
+    // per-file optimisation: only gd32_timing.c gets the extra -O2 in the gd32-debug profile
     let driver_plan = plan_for(&project, "gd32f303", "gd32-debug", "gd32_driver", true);
     let timing = driver_plan.phases[0]
         .iter()
         .find(|s| args_of(s).iter().any(|a| a.ends_with("gd32_timing.c")))
-        .expect("gd32_timing.c 应参与编译");
+        .expect("gd32_timing.c must be compiled");
     assert!(args_of(timing).contains(&"-O2".to_string()), "{}", joined(timing));
     let driver = driver_plan.phases[0]
         .iter()
         .find(|s| args_of(s).iter().any(|a| a.ends_with("gd32_driver.c")))
-        .expect("gd32_driver.c 应参与编译");
+        .expect("gd32_driver.c must be compiled");
     assert!(!args_of(driver).contains(&"-O2".to_string()), "{}", joined(driver));
 
-    // 自定义的 size 档：
+    // custom size profile:
     let size_plan = plan_for(&project, "gd32f303", "gd32-size", "gd32_driver", true);
     let size_compile = joined(step_in(&size_plan, 0));
     assert!(size_compile.contains("-flto"), "{size_compile}");
@@ -427,20 +429,20 @@ fn mcu_examples_declare_linker_scripts_and_startup_sources() {
         let project = Project::discover(&root).unwrap();
         let module = project.module("firmware").unwrap();
         let link = module.config.for_target("host").link();
-        let script_path = root.join("firmware").join(link.linker_script.expect("配置了链接脚本"));
-        assert!(script_path.is_file(), "{} 不存在", script_path.display());
+        let script_path = root.join("firmware").join(link.linker_script.expect("a linker script is configured"));
+        assert!(script_path.is_file(), "{} does not exist", script_path.display());
         let text = fs::read_to_string(&script_path).unwrap();
-        assert!(text.contains("MEMORY"), "链接脚本应包含 MEMORY 段（内存占用报告需要）");
-        assert!(text.contains("Reset_Handler"), "链接脚本应声明 Reset_Handler");
+        assert!(text.contains("MEMORY"), "the linker script needs a MEMORY section for the usage report");
+        assert!(text.contains("Reset_Handler"), "the linker script must declare Reset_Handler");
 
-        // 启动文件必须能被 sources glob 命中
+        // the startup file must be matched by the sources glob
         let target = project.global.targets.keys().next().unwrap().clone();
         let plan = plan_for(&project, &target, "mcu-debug", "firmware", true);
         assert!(
             plan.phases[0].iter().any(|s| args_of(s).iter().any(|a| a.ends_with(".s"))),
-            "{example}: 启动文件未参与编译"
+            "{example}: the startup file is not part of the build"
         );
-        assert!(text.contains("LENGTH"), "{example}: 链接脚本缺少 LENGTH");
+        assert!(text.contains("LENGTH"), "{example}: the linker script has no LENGTH");
         assert!(script.ends_with(".ld"));
     }
 }

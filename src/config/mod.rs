@@ -1,9 +1,10 @@
-//! 配置模型。
+//! Configuration model.
 //!
-//! * module.rs  : 模块级 config.yaml（每个模块一个）
-//! * global.rs  : 工程级 hk.yaml（工具链 / 目标 / 配置档）
+//! * module.rs : module-level config.yaml (one per module)
+//! * global.rs : project-level hk.yaml (toolchains / targets / profiles)
 //!
-//! 所有编译器、架构参数、优化参数都来自 YAML，Rust 代码中不写死任何工具名与编译参数。
+//! Every compiler name and every compiler/linker flag comes from YAML; nothing of
+//! that kind is hard-coded in Rust.
 
 pub mod global;
 pub mod module;
@@ -14,35 +15,35 @@ pub use module::{Config, ConfigView};
 use crate::error::{HkError, Result};
 use serde::de::DeserializeOwned;
 
-/// 工程级配置文件名（按顺序查找）。
+/// Project config file names, tried in order.
 pub const GLOBAL_FILE_NAMES: [&str; 2] = ["hk.yaml", "project.yaml"];
-/// 模块级配置文件名。
+/// Module config file name.
 pub const MODULE_FILE_NAME: &str = "config.yaml";
-/// 内置默认工程配置。
+/// Built-in default project config.
 pub const DEFAULT_GLOBAL_YAML: &str = include_str!("../defaults/hk.yaml");
 
-/// 占位符前缀，写作 concat 是为了避免源码里直接出现美元加大括号。
+/// Placeholder prefix; built with concat! to keep a literal dollar-brace out of the source.
 pub const PH_OPEN: &str = concat!("$", "{");
 
-/// 链接后的额外产物。
+/// Extra artifacts produced after linking.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PostAction {
-    /// 保留/命名为 .elf（链接产物本身）
+    /// Keep the link output as .elf
     Elf,
     /// objcopy -O binary
     Bin,
     /// objcopy -O ihex
     Hex,
-    /// 链接 map 文件
+    /// Linker map file
     Map,
-    /// size 报告
+    /// size report
     Size,
-    /// objdump 反汇编清单
+    /// objdump disassembly listing
     Lst,
 }
 
-/// 产物类型。
+/// Kind of artifact a module produces.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Kind {
@@ -65,13 +66,13 @@ impl Kind {
         }
     }
 
-    /// 是否需要链接（而不是只产出 .o 或什么都不产出）。
+    /// Does this kind run a link step (as opposed to only objects, or nothing)?
     pub fn links(self) -> bool {
         matches!(self, Kind::Executable | Kind::SharedLib)
     }
 }
 
-/// 宿主平台名（可用于配置中的 OS 占位符）。
+/// Host platform name (usable as the OS placeholder in config files).
 pub fn host_os() -> &'static str {
     if cfg!(target_os = "windows") {
         "windows"
@@ -82,7 +83,8 @@ pub fn host_os() -> &'static str {
     }
 }
 
-/// 文件名约定：可由 toolchain / target 覆盖，缺省按宿主平台推断。
+/// Artifact naming, overridable per toolchain and per target; the fallback follows
+/// the host platform.
 #[derive(Debug, Clone)]
 pub struct Naming {
     pub static_prefix: String,
@@ -125,7 +127,7 @@ impl Naming {
     }
 }
 
-/// 占位符表：让同一份 YAML 在 Windows / Linux / macOS 都能用。
+/// Placeholder table so one YAML file works on Windows / Linux / macOS.
 fn placeholder_table() -> Vec<(&'static str, String)> {
     let shared_suffix = if cfg!(target_os = "windows") {
         ".dll"
@@ -188,27 +190,27 @@ fn apply_placeholders(text: &str, unknown: &mut Vec<String>) -> Option<String> {
     Some(out)
 }
 
-/// 读取 YAML 并反序列化；含占位符时先做平台替换。
+/// Read and deserialize YAML, expanding platform placeholders first.
 pub fn parse_yaml_file<T: DeserializeOwned>(path: &std::path::Path) -> Result<T> {
     let text = crate::util::read_to_string(path)?;
-    parse_yaml_str(&text).map_err(|e| e.context(format!("配置文件 {}", path.display())))
+    parse_yaml_str(&text).map_err(|e| e.context(format!("config file {}", path.display())))
 }
 
 pub fn parse_yaml_str<T: DeserializeOwned>(text: &str) -> Result<T> {
     if text.contains(PH_OPEN) {
         let mut value: serde_yaml::Value =
-            serde_yaml::from_str(text).map_err(|e| HkError::with_source("YAML 语法错误", e))?;
+            serde_yaml::from_str(text).map_err(|e| HkError::with_source("YAML syntax error", e))?;
         let mut unknown = Vec::new();
         substitute(&mut value, &mut unknown);
         for name in unknown {
             crate::log_warn!(
-                "配置中出现未知占位符 {}{name}}}，已原样保留",
+                "unknown placeholder {}{name}}} in config; left as-is",
                 crate::config::PH_OPEN
             );
         }
-        serde_yaml::from_value(value).map_err(|e| HkError::with_source("YAML 字段错误", e))
+        serde_yaml::from_value(value).map_err(|e| HkError::with_source("invalid YAML fields", e))
     } else {
-        serde_yaml::from_str(text).map_err(|e| HkError::with_source("YAML 解析失败", e))
+        serde_yaml::from_str(text).map_err(|e| HkError::with_source("YAML parse error", e))
     }
 }
 

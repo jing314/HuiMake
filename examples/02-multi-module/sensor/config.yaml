@@ -1,0 +1,7 @@
+# 依赖 core 的静态库；core 的宏 CORE_VERSION 会被传播过来
+name: sensor
+kind: static-lib
+std: c11
+
+deps:
+  mods: [core]

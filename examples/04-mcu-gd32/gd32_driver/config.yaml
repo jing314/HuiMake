@@ -1,0 +1,16 @@
+# 厂商驱动封装层：对外传播 GD32 器件宏与固件库头文件目录
+name: gd32_driver
+kind: static-lib
+std: c11
+
+include: [include]
+include_dirs: [../vendor/gd32]
+
+compile:
+  per_file:
+    # 时序敏感的代码单独提高优化等级（演示逐文件参数）
+    src/gd32_timing.c: ["-O2"]
+
+public:
+  include_dirs: [../vendor/gd32]
+  defines: [GD32F30X_HD, USE_STDPERIPH_DRIVER]

@@ -1,11 +1,20 @@
 [package]
 name = "hk"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
+rust-version = "1.74"
+description = "HuiMake: a YAML-driven C/C++ build tool with cross-compilation and MCU support"
+license = "MIT"
+
+[[bin]]
+name = "hk"
+path = "src/main.rs"
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9.33"
 clap = { version = "4.0", features = ["derive"] }
-petgraph = "0.6"
-cc = "1.0"
+indexmap = { version = "2", features = ["serde"] }
+
+[profile.release]
+lto = true

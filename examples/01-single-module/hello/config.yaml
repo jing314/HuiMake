@@ -1,0 +1,11 @@
+# 单模块示范：不需要 hk.yaml，全部使用内置默认配置（host + debug）
+name: hello
+kind: executable
+std: c11
+
+defines:
+  - 'GREETING="hello from hk"'
+  - ENABLE_SHOUT
+
+# 不写 sources 时会自动扫描 src/ 与 bin/
+# 不写 include 时默认使用 include/

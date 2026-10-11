@@ -1,0 +1,8 @@
+name: bsp
+kind: static-lib
+std: c11
+
+include: [include]
+
+deps:
+  mods: [gd32_driver]

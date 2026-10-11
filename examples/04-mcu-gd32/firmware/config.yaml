@@ -1,0 +1,13 @@
+name: firmware
+kind: executable
+std: c11
+
+sources:
+  - src/**/*.c
+  - startup/**/*.s
+
+deps:
+  mods: [bsp]
+
+link:
+  linker_script: link/GD32F303CCT6_FLASH.ld

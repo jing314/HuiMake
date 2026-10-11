@@ -1,0 +1,18 @@
+name: firmware
+kind: executable
+std: c11
+
+# 除了 src/ 还要编译启动文件（默认 glob 不包含 startup/）
+sources:
+  - src/**/*.c
+  - startup/**/*.s
+
+deps:
+  mods: [bsp]
+
+link:
+  linker_script: link/STM32F407VGTx_FLASH.ld
+
+targets:
+  stm32f407:
+    defines: [USE_HAL_DRIVER, USE_FULL_ASSERT]

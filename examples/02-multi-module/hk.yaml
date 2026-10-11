@@ -1,0 +1,12 @@
+# 多模块示范：3 种产物类型 + 跨模块依赖 + 公共接口传播
+version: 1
+project: multi-module-demo
+default_target: host
+default_mode: debug
+
+# 内置已有 host / clang-host 目标与 debug / release 配置档，这里只做微调示范：
+profiles:
+  release:
+    cflags: [-O2, -Wall, -Wextra]
+    defines: [NDEBUG]
+    strip: true

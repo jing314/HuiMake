@@ -1,0 +1,46 @@
+# GD32F303CCT6 裸机示范工程（arm-none-eabi-gcc + GD32 固件库布局）
+# 与 STM32 示例的区别：自定义工具链名、自定义配置档名、GD32 固件库目录、逐文件优化等级。
+version: 1
+project: gd32f303-demo
+default_target: gd32f303
+default_mode: gd32-debug
+jobs: 4
+
+toolchains:
+  gd32-arm-none-eabi:
+    cc: arm-none-eabi-gcc
+    cxx: arm-none-eabi-g++
+    ar: arm-none-eabi-ar
+    objcopy: arm-none-eabi-objcopy
+    objdump: arm-none-eabi-objdump
+    size: arm-none-eabi-size
+
+targets:
+  gd32f303:
+    toolchain: gd32-arm-none-eabi
+    cflags: [-mcpu=cortex-m4, -mthumb, -mfloat-abi=hard, -mfpu=fpv4-sp-d16, -ffunction-sections, -fdata-sections, -Wall]
+    ldflags: ["-Wl,--gc-sections"]
+    specs: [nano.specs, nosys.specs]
+    defines: [GD32F30X_HD, USE_STDPERIPH_DRIVER]
+    entry: Reset_Handler
+    post: [elf, bin, hex, map, size]
+    memory_usage: true
+    runnable: false
+    exe_suffix: .elf
+
+profiles:
+  gd32-debug:
+    cflags: [-Og, -g3]
+    defines: [DEBUG]
+    post: [elf, map, size]
+  gd32-release:
+    cflags: [-O2, -g0]
+    defines: [NDEBUG]
+    strip: true
+    post: [elf, bin, hex, map, size]
+  gd32-size:
+    cflags: [-Os, -g0, -flto]
+    ldflags: [-flto]
+    defines: [NDEBUG]
+    strip: true
+    post: [elf, bin, hex, map, size]

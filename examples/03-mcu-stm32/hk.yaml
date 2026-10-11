@@ -1,0 +1,41 @@
+# STM32F407VGT6 裸机示范工程（arm-none-eabi-gcc）
+# 工具链、器件目标、优化档全部在这里描述，代码中不写死任何参数。
+version: 1
+project: stm32f407-demo
+default_target: stm32f407
+default_mode: mcu-debug
+
+toolchains:
+  # 项目自带工具链条目：SDK 不在 PATH 时，直接写绝对路径即可
+  #   例如 cc: C:/gcc-arm-none-eabi/bin/arm-none-eabi-gcc.exe
+  stm32-arm-none-eabi:
+    cc: arm-none-eabi-gcc
+    cxx: arm-none-eabi-g++
+    ar: arm-none-eabi-ar
+    objcopy: arm-none-eabi-objcopy
+    objdump: arm-none-eabi-objdump
+    size: arm-none-eabi-size
+
+targets:
+  stm32f407:
+    toolchain: stm32-arm-none-eabi
+    cflags: [-mcpu=cortex-m4, -mthumb, -mfloat-abi=hard, -mfpu=fpv4-sp-d16, -ffunction-sections, -fdata-sections, -Wall]
+    ldflags: ["-Wl,--gc-sections"]
+    specs: [nano.specs, nosys.specs]
+    defines: [STM32F407xx]
+    entry: Reset_Handler
+    post: [elf, bin, hex, map, size]
+    memory_usage: true
+    runnable: false
+    exe_suffix: .elf
+
+profiles:
+  mcu-debug:
+    cflags: [-Og, -g3]
+    defines: [DEBUG]
+    post: [elf, map, size]
+  mcu-release:
+    cflags: [-Os, -g0]
+    defines: [NDEBUG]
+    strip: true
+    post: [elf, bin, hex, map, size]

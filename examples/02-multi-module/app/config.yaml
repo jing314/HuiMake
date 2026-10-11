@@ -1,0 +1,15 @@
+# 可执行文件：链接 sensor（静态库）与系统库 libm
+name: app
+kind: executable
+std: c11
+
+sources: [bin/**/*.c]
+
+deps:
+  mods: [sensor]
+  system: [m]
+
+targets:
+  # 只有本机目标需要可执行，示例里演示"按目标覆盖"
+  host:
+    defines: [HOST_BUILD=1]
